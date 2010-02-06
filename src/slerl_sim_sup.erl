@@ -1,42 +1,39 @@
 %%%-------------------------------------------------------------------
-%%% File    : slerl_sup.erl
+%%% File    : slerl_sim_sup.erl
 %%% Author  : Brendon Hogger <brendonh@dev.brendonh.org>
-%%% Description : 
+%%% Description : Supervise simulator connections
 %%%
-%%% Created :  4 Feb 2010 by Brendon Hogger <brendonh@dev.brendonh.org>
+%%% Created :  7 Feb 2010 by Brendon Hogger <brendonh@dev.brendonh.org>
 %%%-------------------------------------------------------------------
--module(slerl_sup).
+-module(slerl_sim_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([start_link/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
--define(SERVER, ?MODULE).
 
 %%====================================================================
 %% API functions
 %%====================================================================
 
-start_link(StartArgs) ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, StartArgs).
+start_link(Info, Messages) ->
+    supervisor:start_link(?MODULE, [Info, Messages]).
 
 
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
 
-init(_StartArgs) ->
-    ChildSpec = {none, {slerl_bot_sup, start_link, []},
-                 transient,20000,supervisor,[slerl_bot_sup]},
-
-    {ok,{{simple_one_for_one,10,60}, [ChildSpec]}}.
+init([Info, Messages]) ->
+    ChildSpec = {none,{slerl_sim,start_link,[Info, Messages]},
+                 permanent,2000,worker,[slerl_sim]},
+    {ok,{{simple_one_for_one,1,10}, [ChildSpec]}}.
 
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
-

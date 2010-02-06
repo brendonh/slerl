@@ -9,6 +9,9 @@
 
 -behaviour(application).
 
+-include("slerl_util.hrl").
+
+
 %% API
 -export([launch/0]).
 
@@ -16,12 +19,22 @@
 -export([start/2, stop/1]).
 
 
+
 %%====================================================================
 %% API
 %%====================================================================
 
 launch() ->
-    application:start(slerl).
+    application:start(inets),
+    application:start(ssl),
+    application:start(slerl),
+    {ok, [Bits]} = file:consult("login.config"),
+    First = ?GV(first, Bits),
+    Last = ?GV(last, Bits),
+    Password = ?GV(pass, Bits),
+    slerl:login(First, Last, Password),
+    ok.
+
 
 
 %%====================================================================

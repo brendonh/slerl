@@ -78,8 +78,6 @@ member_as_kv(M) ->
 
 test() ->
     application:start(slerl),
-    application:start(inets),
-    application:start(ssl),
 
     {ok, [Bits]} = file:consult("login.config"),
     First = ?GV(first, Bits),

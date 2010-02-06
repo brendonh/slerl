@@ -10,8 +10,8 @@
 -export([macaddr/0, macaddr/1, 
          md5_hex/1, 
          parse_message_template/0,
-         zero_encode/1, zero_decode/1
-         ]).
+         zero_encode/1, zero_decode/1,
+         test/0]).
 
 
 -define(DBG(T), io:format("~p ~p~n", [self(), T])).
@@ -45,7 +45,7 @@ hex(N) when N >= 10, N < 16 ->
 parse_message_template() ->
     Content = slerl_message_template_lexer:scan_file("priv/message_template.msg"),
     {ok, {_Version, Messages}} = slerl_message_template_parser:parse(Content),
-    ?DBG(Messages).
+    Messages.
 
 
 
@@ -61,9 +61,7 @@ zero_encode(<<I:8/integer, Rest/binary>>, Buff) ->
     zero_encode(Rest, [I|Buff]).
 
 
-run_zeros(Rest, Count) when Count == 255 ->
-    {<<0:8/integer, Count:8/integer>>, Rest};
-run_zeros(<<0:8/integer, Rest/binary>>, Count) -> 
+run_zeros(<<0:8/integer, Rest/binary>>, Count) when Count < 255 -> 
     run_zeros(Rest, Count+1);
 run_zeros(Rest, Count) -> 
     {<<0:8/integer, Count:8/integer>>, Rest}.
@@ -81,4 +79,20 @@ zero_decode(<<I:8/integer, Rest/binary>>, Buff) ->
     zero_decode(Rest, [I|Buff]).
 
 
+test() ->
+
+    A = <<1, 5, 0, 0, 0, 0, 23, 0, 0, 0, 9>>,
+    B = list_to_binary([<<1, 3>>,
+                        <<0:2048/integer>>,
+                        <<0, 0, 9, 12>>]),
+
+    One = zero_encode(A),
+    Two = zero_encode(B),
+    ?DBG(One),
+    ?DBG(Two),
+    ?DBG(zero_decode(One)),
+    ?DBG(zero_decode(Two)),
+    
+    ?DBG(zero_decode(One) == A),
+    ?DBG(zero_decode(Two) == B).
     

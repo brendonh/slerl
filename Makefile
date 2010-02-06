@@ -27,6 +27,9 @@ run_prereqs: all
 run: run_prereqs
 	$(ERL_CMD) -s ${PKG_NAME}_app launch
 
+test: run_prereqs
+	$(ERL_CMD) -noshell -s slerl_login test -s init stop
+
 stop:
 	erl_call -a '$(PKG_NAME)_app stop_and_halt []' -sname $(PKG_NAME)
 

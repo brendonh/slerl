@@ -1,10 +1,21 @@
 -module(slerl_message_template_parser).
 -export([parse/1, parse_and_scan/1, format_error/1]).
--file("priv/messages.yrl", 75).
+-file("priv/messages.yrl", 57).
 
 -include("include/slerl.hrl").
 
 value_of(T) -> element(3, T).
+
+assemble_message(Name, Freq, Num, Trust, Zero, Flag, Blocks) ->
+   {list_to_atom(Name), 
+    #messageDef{name=Name, 
+                frequency=Freq, 
+                number=Num, 
+                trusted=Trust, 
+                zerocoded=Zero, 
+                flag=Flag, 
+                blocks=Blocks}}.
+
 
 parse_frequency("Fixed") -> fixed;
 parse_frequency("Low") -> low;
@@ -202,7 +213,7 @@ yecctoken2string(Other) ->
 
 
 
--file("src/slerl_message_template_parser.erl", 205).
+-file("src/slerl_message_template_parser.erl", 216).
 
 yeccpars2(0=S, Cat, Ss, Stack, T, Ts, Tzr) ->
  yeccpars2_0(S, Cat, Ss, Stack, T, Ts, Tzr);
@@ -615,7 +626,7 @@ yeccpars2_6_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_9_,1}}).
--file("priv/messages.yrl", 42).
+-file("priv/messages.yrl", 24).
 yeccpars2_9_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -623,7 +634,7 @@ yeccpars2_9_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_11_,1}}).
--file("priv/messages.yrl", 43).
+-file("priv/messages.yrl", 25).
 yeccpars2_11_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -631,7 +642,7 @@ yeccpars2_11_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_13_,1}}).
--file("priv/messages.yrl", 44).
+-file("priv/messages.yrl", 26).
 yeccpars2_13_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -639,7 +650,7 @@ yeccpars2_13_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_15_,1}}).
--file("priv/messages.yrl", 45).
+-file("priv/messages.yrl", 27).
 yeccpars2_15_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -647,7 +658,7 @@ yeccpars2_15_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_17_,1}}).
--file("priv/messages.yrl", 46).
+-file("priv/messages.yrl", 28).
 yeccpars2_17_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -655,7 +666,7 @@ yeccpars2_17_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_20_,1}}).
--file("priv/messages.yrl", 49).
+-file("priv/messages.yrl", 31).
 yeccpars2_20_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -663,7 +674,7 @@ yeccpars2_20_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_21_,1}}).
--file("priv/messages.yrl", 47).
+-file("priv/messages.yrl", 29).
 yeccpars2_21_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -671,21 +682,15 @@ yeccpars2_21_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_23_,1}}).
--file("priv/messages.yrl", 33).
+-file("priv/messages.yrl", 21).
 yeccpars2_23_(__Stack0) ->
  [__7,__6,__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   # messageDef { name = __2 ,
-    frequency = __3 ,
-    number = __4 ,
-    trusted = __5 ,
-    zerocoded = __6 ,
-    flag = none ,
-    blocks = [ ] }
+   assemble_message ( __2 , __3 , __4 , __5 , __6 , none , [ ] )
   end | __Stack].
 
 -compile({inline,{yeccpars2_25_,1}}).
--file("priv/messages.yrl", 57).
+-file("priv/messages.yrl", 39).
 yeccpars2_25_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -693,7 +698,7 @@ yeccpars2_25_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_27_,1}}).
--file("priv/messages.yrl", 58).
+-file("priv/messages.yrl", 40).
 yeccpars2_27_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -701,7 +706,7 @@ yeccpars2_27_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_30_,1}}).
--file("priv/messages.yrl", 61).
+-file("priv/messages.yrl", 43).
 yeccpars2_30_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -709,7 +714,7 @@ yeccpars2_30_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_31_,1}}).
--file("priv/messages.yrl", 59).
+-file("priv/messages.yrl", 41).
 yeccpars2_31_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -717,7 +722,7 @@ yeccpars2_31_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_34_,1}}).
--file("priv/messages.yrl", 67).
+-file("priv/messages.yrl", 49).
 yeccpars2_34_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -725,7 +730,7 @@ yeccpars2_34_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_36_,1}}).
--file("priv/messages.yrl", 68).
+-file("priv/messages.yrl", 50).
 yeccpars2_36_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -733,7 +738,7 @@ yeccpars2_36_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_38_,1}}).
--file("priv/messages.yrl", 69).
+-file("priv/messages.yrl", 51).
 yeccpars2_38_(__Stack0) ->
  [__1 | __Stack] = __Stack0,
  [begin
@@ -741,7 +746,7 @@ yeccpars2_38_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_39_,1}}).
--file("priv/messages.yrl", 64).
+-file("priv/messages.yrl", 46).
 yeccpars2_39_(__Stack0) ->
  [__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
@@ -749,7 +754,7 @@ yeccpars2_39_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_40_,1}}).
--file("priv/messages.yrl", 65).
+-file("priv/messages.yrl", 47).
 yeccpars2_40_(__Stack0) ->
  [__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
@@ -757,7 +762,7 @@ yeccpars2_40_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_41_,1}}).
--file("priv/messages.yrl", 62).
+-file("priv/messages.yrl", 44).
 yeccpars2_41_(__Stack0) ->
  [__2,__1 | __Stack] = __Stack0,
  [begin
@@ -765,7 +770,7 @@ yeccpars2_41_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_42_,1}}).
--file("priv/messages.yrl", 53).
+-file("priv/messages.yrl", 35).
 yeccpars2_42_(__Stack0) ->
  [__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
@@ -773,7 +778,7 @@ yeccpars2_42_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_44_,1}}).
--file("priv/messages.yrl", 55).
+-file("priv/messages.yrl", 37).
 yeccpars2_44_(__Stack0) ->
  [__6,__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
@@ -781,7 +786,7 @@ yeccpars2_44_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_45_,1}}).
--file("priv/messages.yrl", 50).
+-file("priv/messages.yrl", 32).
 yeccpars2_45_(__Stack0) ->
  [__2,__1 | __Stack] = __Stack0,
  [begin
@@ -789,17 +794,11 @@ yeccpars2_45_(__Stack0) ->
   end | __Stack].
 
 -compile({inline,{yeccpars2_46_,1}}).
--file("priv/messages.yrl", 24).
+-file("priv/messages.yrl", 18).
 yeccpars2_46_(__Stack0) ->
  [__8,__7,__6,__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   # messageDef { name = __2 ,
-    frequency = __3 ,
-    number = __4 ,
-    trusted = __5 ,
-    zerocoded = __6 ,
-    flag = none ,
-    blocks = __7 }
+   assemble_message ( __2 , __3 , __4 , __5 , __6 , none , __7 )
   end | __Stack].
 
 -compile({inline,{yeccpars2_48_,1}}).
@@ -807,13 +806,7 @@ yeccpars2_46_(__Stack0) ->
 yeccpars2_48_(__Stack0) ->
  [__9,__8,__7,__6,__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   # messageDef { name = __2 ,
-    frequency = __3 ,
-    number = __4 ,
-    trusted = __5 ,
-    zerocoded = __6 ,
-    flag = __7 ,
-    blocks = __8 }
+   assemble_message ( __2 , __3 , __4 , __5 , __6 , __7 , __8 )
   end | __Stack].
 
 -compile({inline,{yeccpars2_49_,1}}).
@@ -825,4 +818,4 @@ yeccpars2_49_(__Stack0) ->
   end | __Stack].
 
 
--file("priv/messages.yrl", 127).
+-file("priv/messages.yrl", 120).

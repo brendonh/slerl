@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/2]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -23,17 +23,17 @@
 %% API functions
 %%====================================================================
 
-start_link(Info, Messages) ->
+start_link(Info) ->
     ?DBG({?MODULE, starting}),
-    supervisor:start_link(?MODULE, [Info, Messages]).
+    supervisor:start_link(?MODULE, [Info]).
 
 
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
 
-init([Info, Messages]) ->
-    Sims = {udp, {slerl_sim_sup, start_link, [Info, Messages]},
+init([Info]) ->
+    Sims = {udp, {slerl_sim_sup, start_link, [Info]},
             permanent,2000,supervisor,[slerl_sim_sup]},
     {ok,{{one_for_one,0,1}, [Sims]}}.
 

@@ -31,10 +31,7 @@ login(First, Last, Password, Start) ->
 
 
 start_bot(Info) ->
-    ?DBG(parsing_messages),
-    Messages = slerl_util:parse_message_template(),
-    ?DBG(starting_bot),
-    {ok, Pid} = supervisor:start_child(slerl_sup, [Info, Messages]),
+    {ok, Pid} = supervisor:start_child(slerl_sup, [Info]),
 
     I = fun(K) -> ?GV(K, Info) end,
 

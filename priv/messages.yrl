@@ -16,31 +16,13 @@ messages -> message messages: ['$1'|'$2'].
 
 
 message -> '{' messagename frequency number trustlevel zerocoded messageflag blocks '}' :
-           #messageDef{name='$2', 
-                       frequency='$3', 
-                       number='$4', 
-                       trusted='$5', 
-                       zerocoded='$6', 
-                       flag='$7', 
-                       blocks='$8'}.
+        assemble_message('$2', '$3', '$4', '$5', '$6', '$7', '$8').
 
 message -> '{' messagename frequency number trustlevel zerocoded blocks '}' :
-           #messageDef{name='$2', 
-                       frequency='$3', 
-                       number='$4', 
-                       trusted='$5', 
-                       zerocoded='$6', 
-                       flag=none, 
-                       blocks='$7'}.
+        assemble_message('$2', '$3', '$4', '$5', '$6', none, '$7').
 
 message -> '{' messagename frequency number trustlevel zerocoded '}' :
-           #messageDef{name='$2', 
-                       frequency='$3', 
-                       number='$4', 
-                       trusted='$5', 
-                       zerocoded='$6', 
-                       flag=none, 
-                       blocks=[]}.
+        assemble_message('$2', '$3', '$4', '$5', '$6', none, []).
 
 
 messagename -> 'word': value_of('$1').
@@ -77,6 +59,17 @@ Erlang code.
 -include("include/slerl.hrl").
 
 value_of(T) -> element(3, T).
+
+assemble_message(Name, Freq, Num, Trust, Zero, Flag, Blocks) ->
+   {list_to_atom(Name), 
+    #messageDef{name=Name, 
+                frequency=Freq, 
+                number=Num, 
+                trusted=Trust, 
+                zerocoded=Zero, 
+                flag=Flag, 
+                blocks=Blocks}}.
+
 
 parse_frequency("Fixed") -> fixed;
 parse_frequency("Low") -> low;

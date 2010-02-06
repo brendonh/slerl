@@ -9,7 +9,6 @@
 
 -export([macaddr/0, macaddr/1, 
          md5_hex/1, 
-         parse_message_template/0,
          zero_encode/1, zero_decode/1,
          test/0]).
 
@@ -40,13 +39,6 @@ hex(N) when N < 10 ->
        $0+N;
 hex(N) when N >= 10, N < 16 ->
        $a + (N-10).
-
-
-parse_message_template() ->
-    Content = slerl_message_template_lexer:scan_file("priv/message_template.msg"),
-    {ok, {_Version, Messages}} = slerl_message_template_parser:parse(Content),
-    Messages.
-
 
 
 zero_encode(B) ->

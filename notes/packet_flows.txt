@@ -1,0 +1,16 @@
+
+Connect to simulator:
+
+  - If not already connected:
+    - Send msg: UseCircuitCode
+    - Call: Client.Self.CompleteAgentMovement
+    - Maybe call: Client.Self.Movement.SendUpdates
+    - Wait msg: RegionHandshake
+    - Set seed caps (HTTP)
+    - Maybe send: AgentThrottle (to increase bandwidth)
+  - Otherwise:
+    - Set seed caps (HTTP)
+    - Call: Client.Self.CompleteAgentMovement
+    - Maybe call: Client.Self.Movement.SendUpdates
+    
+

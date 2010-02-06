@@ -56,9 +56,9 @@ get_response(URL, XML) ->
             Response = parse_response(Body),
             case ?GV("login", Response) of
                 "true" -> {ok, Response};
-                Other -> {error, 
-                          {login_failed, 
-                           list_to_atom(?GV("reason",Response))}}
+                _Other -> {error, 
+                           {login_failed, 
+                            list_to_atom(?GV("reason",Response))}}
             end;
         Other ->
             ?DEBUG({error, Other}),

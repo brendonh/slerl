@@ -10,6 +10,9 @@
 -compile([export_all]).
 
 
+-define(DBG(T), io:format("~p ~p~n", [self(), T])).
+
+
 macaddr() -> macaddr("eth0").
 
 macaddr(IFName) ->
@@ -33,3 +36,9 @@ hex(N) when N < 10 ->
        $0+N;
 hex(N) when N >= 10, N < 16 ->
        $a + (N-10).
+
+
+parse_message_template() ->
+    Content = slerl_message_template_lexer:scan_file("priv/message_template.msg"),
+    {ok, {_Version, Messages}} = slerl_message_template_parser:parse(Content),
+    ?DBG(Messages).

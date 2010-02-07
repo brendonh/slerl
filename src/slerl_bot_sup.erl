@@ -33,7 +33,7 @@ start_link(Info) ->
 %%====================================================================
 
 init([Info]) ->
-    Sims = {udp, {slerl_sim_sup, start_link, [Info]},
+    Sims = {sims, {slerl_sim_sup, start_link, [Info]},
             permanent,2000,supervisor,[slerl_sim_sup]},
     {ok,{{one_for_one,0,1}, [Sims]}}.
 

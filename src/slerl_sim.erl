@@ -9,6 +9,9 @@
 
 -behaviour(gen_fsm).
 
+-include("slerl.hrl").
+-include("slerl_util.hrl").
+
 %% API
 -export([start_link/2]).
 
@@ -16,23 +19,42 @@
 -export([init/1, state_name/2, state_name/3, handle_event/3,
          handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 
--record(state, {}).
+-define(PORT, 0).
+-define(MTU, 1200). % It's what libOMV uses.
+-define(SOCKET_OPTIONS, [binary, {active, true}]).
+
+-record(state, {
+  info,
+  sim,
+  socket,
+  sequence=0
+}).
 
 
 %%====================================================================
 %% API
 %%====================================================================
 
-start_link(Info, Messages) ->
-    gen_fsm:start_link(?MODULE, [], []).
+start_link(Info, Sim) ->
+    gen_fsm:start_link(?MODULE, [Info, Sim], []).
 
 
 %%====================================================================
 %% gen_fsm callbacks
 %%====================================================================
 
-init([]) ->
-    {ok, state_name, #state{}}.
+init([Info, Sim]) ->
+    {ok, Socket} = gen_udp:open(?PORT, ?SOCKET_OPTIONS),
+
+    State = #state{info=Info, 
+                   sim=Sim, 
+                   socket=Socket,
+                   sequence=1},
+
+    NewState = send_connect_packets(State),
+    self() ! quicktest,
+
+    {ok, state_name, NewState}.
 
 
 state_name(_Event, State) ->
@@ -53,7 +75,8 @@ handle_sync_event(Event, From, StateName, State) ->
     {reply, Reply, StateName, State}.
 
 
-handle_info(_Info, StateName, State) ->
+handle_info(Info, StateName, State) ->
+    ?DBG({info, Info}),
     {next_state, StateName, State}.
 
 
@@ -68,3 +91,101 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+send(Packet, State) ->
+    Sim = State#state.sim,
+    ?DBG({send, Sim, Packet}),
+    ok = gen_udp:send(State#state.socket, 
+                      Sim#sim.ip, Sim#sim.port,
+                      list_to_binary(Packet)).
+
+
+reliable(M) -> M#message{reliable=true}.
+    
+
+unbool(true) -> 1;
+unbool(false) -> 0.
+     
+
+make_flags(Bits) ->
+    [Zero, Reliable, Resend, Acks] = lists:map(fun unbool/1, Bits),
+    <<Zero:1/integer-unit:1, Reliable:1/integer-unit:1,
+     Resend:1/integer-unit:1, Acks:1/integer-unit:1,
+     0:4/integer-unit:1>>.
+
+build_packet(Message, State) ->
+    Spec = Message#message.spec,
+    Flags = make_flags([Spec#messageDef.zerocoded,
+                        Message#message.reliable,
+                        Message#message.resend,
+                        false]),
+    
+    Seq = State#state.sequence,
+    Header = [Flags, <<Seq:4/integer-unit:8, 0:1/integer-unit:8>>],
+    Packet = [Header,Message#message.message],
+    {Packet, State#state{sequence=Seq+1}}.
+
+
+
+send_connect_packets(State) ->
+    State1 = use_circuit_code(State),
+    State2 = complete_agent_movement(State1),
+    State3 = agent_update(State2),
+    State4 = ping(State3),
+    State4.
+
+use_circuit_code(State) ->    
+    Sim = State#state.sim,
+    Code = Sim#sim.circuitCode,
+
+    Message = slerl_message:build_message(
+                'UseCircuitCode',
+                [ [Code, Sim#sim.sessionID, Sim#sim.agentID] ]),
+
+    {Packet, State1} = build_packet(reliable(Message), State),    
+    send(Packet, State1),
+    State1.
+    
+
+complete_agent_movement(State) ->
+    Sim = State#state.sim,
+    Code = Sim#sim.circuitCode,
+
+    Message = slerl_message:build_message(
+                'CompleteAgentMovement',
+                [ [Sim#sim.agentID, Sim#sim.sessionID, Code ] ]),
+    
+    {Packet, State1} = build_packet(reliable(Message), State),    
+    send(Packet, State1),
+    State1.
+
+
+agent_update(State) ->
+    Sim = State#state.sim,
+    Code = Sim#sim.circuitCode,
+
+    Message = slerl_message:build_message(
+                'AgentUpdate',
+                [ [Sim#sim.agentID, Sim#sim.sessionID,
+                   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+                   0,
+                   {9.388699710976274e-44, 9.388699710976274e-44, 5.748826949892562e-41},
+                   {46171676672.0, -1.6316734868642859e-24, 0.0},
+                   {-2.4897361554936003e-29, 180356064.0, 0.0},
+                   {0.0, 1.793662034335766e-43, -1.658270695400354e35},
+                   9.388699710976274e-44,
+                   0, 0
+                  ] ]),
+    
+    {Packet, State1} = build_packet(reliable(Message), State),    
+    send(Packet, State1),
+    State1.
+    
+
+ping(State) ->
+    Message = slerl_message:build_message(
+                'StartPingCheck', [[0, 0]]),
+    
+    {Packet, State1} = build_packet(Message, State),    
+    send(Packet, State1),
+    State1.

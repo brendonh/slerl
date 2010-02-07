@@ -9,15 +9,25 @@
 
 %% Sim connections
 
--record(simConnect, {
-  sim,
+-record(sim, {
+  ip,
+  port,
   circuitCode,
   regionPos,
-  seedCapability
+  seedCapability,
+  agentID,
+  sessionID
 }).
 
 
 
+-record(message, {
+  spec,
+  message,
+  zerocoded,
+  reliable=false,
+  resend=false
+}).
 
 
 
@@ -27,6 +37,7 @@
   name,
   frequency,
   number,
+  messageID,
   trusted,
   zerocoded,
   flag,

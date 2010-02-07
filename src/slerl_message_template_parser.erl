@@ -11,6 +11,7 @@ assemble_message(Name, Freq, Num, Trust, Zero, Flag, Blocks) ->
     #messageDef{name=Name, 
                 frequency=Freq, 
                 number=Num, 
+                messageID=precalc_messageID(Freq, Num),
                 trusted=Trust, 
                 zerocoded=Zero, 
                 flag=Flag, 
@@ -51,8 +52,8 @@ parse_type("S8") -> {int, 1};
 parse_type("S16") -> {int, 2};
 parse_type("S32") -> {int, 4};
 parse_type("S64") -> {int, 8};
-parse_type("F32") -> {float, 8};
-parse_type("F64") -> {float, 16};
+parse_type("F32") -> {float, 4};
+parse_type("F64") -> {float, 8};
 parse_type("LLVector3") -> {vector3, 12};
 parse_type("LLVector3d") -> {vector3, 24};
 parse_type("LLVector4") -> {vector4, 16};
@@ -64,6 +65,12 @@ parse_type("IPPORT") -> {ipport, 2};
 parse_type("U16Vec3") -> not_used;
 parse_type("U16Quat") -> not_used;
 parse_type("S16Array") -> not_used.
+
+precalc_messageID(high, Number) -> <<Number:1/integer-unit:8>>;
+precalc_messageID(fixed, Number) -> <<Number:1/integer-unit:8>>;
+precalc_messageID(medium, Number) -> <<255:1/integer-unit:8, Number:1/integer-unit:8>>;
+precalc_messageID(low, Number) -> <<255:1/integer-unit:8, 255:1/integer-unit:8, Number:1/integer-unit:16>>.
+
 -file("/usr/local/lib/erlang/lib/parsetools-1.4.6/include/yeccpre.hrl", 0).
 %%
 %% %CopyrightBegin%
@@ -213,7 +220,7 @@ yecctoken2string(Other) ->
 
 
 
--file("src/slerl_message_template_parser.erl", 216).
+-file("src/slerl_message_template_parser.erl", 223).
 
 yeccpars2(0=S, Cat, Ss, Stack, T, Ts, Tzr) ->
  yeccpars2_0(S, Cat, Ss, Stack, T, Ts, Tzr);
@@ -818,4 +825,4 @@ yeccpars2_49_(__Stack0) ->
   end | __Stack].
 
 
--file("priv/messages.yrl", 120).
+-file("priv/messages.yrl", 127).

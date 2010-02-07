@@ -65,6 +65,7 @@ assemble_message(Name, Freq, Num, Trust, Zero, Flag, Blocks) ->
     #messageDef{name=Name, 
                 frequency=Freq, 
                 number=Num, 
+                messageID=precalc_messageID(Freq, Num),
                 trusted=Trust, 
                 zerocoded=Zero, 
                 flag=Flag, 
@@ -105,8 +106,8 @@ parse_type("S8") -> {int, 1};
 parse_type("S16") -> {int, 2};
 parse_type("S32") -> {int, 4};
 parse_type("S64") -> {int, 8};
-parse_type("F32") -> {float, 8};
-parse_type("F64") -> {float, 16};
+parse_type("F32") -> {float, 4};
+parse_type("F64") -> {float, 8};
 parse_type("LLVector3") -> {vector3, 12};
 parse_type("LLVector3d") -> {vector3, 24};
 parse_type("LLVector4") -> {vector4, 16};
@@ -118,3 +119,8 @@ parse_type("IPPORT") -> {ipport, 2};
 parse_type("U16Vec3") -> not_used;
 parse_type("U16Quat") -> not_used;
 parse_type("S16Array") -> not_used.
+
+precalc_messageID(high, Number) -> <<Number:1/integer-unit:8>>;
+precalc_messageID(fixed, Number) -> <<Number:1/integer-unit:8>>;
+precalc_messageID(medium, Number) -> <<255:1/integer-unit:8, Number:1/integer-unit:8>>;
+precalc_messageID(low, Number) -> <<255:1/integer-unit:8, 255:1/integer-unit:8, Number:1/integer-unit:16>>.

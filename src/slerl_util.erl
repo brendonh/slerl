@@ -8,9 +8,8 @@
 -module(slerl_util).
 
 -export([macaddr/0, macaddr/1, 
-         md5_hex/1, 
-         zero_encode/1, zero_decode/1,
-         test/0]).
+         md5_hex/1,
+         parse_uuid/1, parse_ip/1]).
 
 
 -define(DBG(T), io:format("~p ~p~n", [self(), T])).
@@ -41,50 +40,11 @@ hex(N) when N >= 10, N < 16 ->
        $a + (N-10).
 
 
-zero_encode(B) ->
-    zero_encode(B, []).
-
-zero_encode(<<>>, Buff) ->
-    list_to_binary(lists:reverse(Buff));
-zero_encode(<<0:8/integer, Rest/binary>>, Buff) ->
-    {Run, Rest2} = run_zeros(Rest, 1),
-    zero_encode(Rest2, [Run|Buff]);
-zero_encode(<<I:8/integer, Rest/binary>>, Buff) ->
-    zero_encode(Rest, [I|Buff]).
+parse_uuid(S) ->
+    I = erlang:list_to_integer([C || C <- S, C /= $-], 16),
+    <<I:16/unsigned-integer-unit:8>>.
 
 
-run_zeros(<<0:8/integer, Rest/binary>>, Count) when Count < 255 -> 
-    run_zeros(Rest, Count+1);
-run_zeros(Rest, Count) -> 
-    {<<0:8/integer, Count:8/integer>>, Rest}.
+parse_ip(S) ->
+    list_to_tuple(lists:map(fun list_to_integer/1, string:tokens(S, "."))).
 
-
-zero_decode(B) ->
-    zero_decode(B, []).
-
-zero_decode(<<>>, Buff) ->
-    list_to_binary(lists:reverse(Buff));
-zero_decode(<<0:8/integer, Count:8/integer, Rest/binary>>, Buff) ->
-    Bits = Count * 8,
-    zero_decode(Rest, [<<0:Bits/integer>>|Buff]);
-zero_decode(<<I:8/integer, Rest/binary>>, Buff) ->
-    zero_decode(Rest, [I|Buff]).
-
-
-test() ->
-
-    A = <<1, 5, 0, 0, 0, 0, 23, 0, 0, 0, 9>>,
-    B = list_to_binary([<<1, 3>>,
-                        <<0:2048/integer>>,
-                        <<0, 0, 9, 12>>]),
-
-    One = zero_encode(A),
-    Two = zero_encode(B),
-    ?DBG(One),
-    ?DBG(Two),
-    ?DBG(zero_decode(One)),
-    ?DBG(zero_decode(Two)),
-    
-    ?DBG(zero_decode(One) == A),
-    ?DBG(zero_decode(Two) == B).
-    

@@ -33,14 +33,27 @@ login(First, Last, Password, Start) ->
 start_bot(Info) ->
     {ok, Pid} = supervisor:start_child(slerl_sup, [Info]),
 
+    ?DBG({info, Info}),
+
     I = fun(K) -> ?GV(K, Info) end,
 
-    SimConnect = #simConnect{
-      sim={I("sim_ip"), I("sim_port")},
-      circuitCode=I("circuit_code"),
+    AgentID = slerl_util:parse_uuid(?GV("agent_id", Info)),
+    SessionID = slerl_util:parse_uuid(?GV("session_id", Info)),
+
+    Sim = #sim{
+      ip=slerl_util:parse_ip(I("sim_ip")), 
+      port=list_to_integer(I("sim_port")),
+      circuitCode=list_to_integer(I("circuit_code")),
       regionPos={I("region_x"), I("region_y")},
-      seedCapability=I("seed_capability")},    
+      seedCapability=I("seed_capability"),
+      agentID=AgentID,
+      sessionID=SessionID}, 
     
-    ?DBG({starting_sim, SimConnect}),
+    ?DBG({starting_sim, Sim}),
+    
+    [SimSup] = [P || {Id, P, _, _} <- supervisor:which_children(Pid), 
+                     Id == sims],
+
+    supervisor:start_child(SimSup, [Sim]),
 
     ok.

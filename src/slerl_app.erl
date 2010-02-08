@@ -28,7 +28,7 @@ launch() ->
     application:start(inets),
     application:start(ssl),
 
-    {ok, _MTid} = slerl_message:parse_message_template(),
+    ok = slerl_message:parse_message_template(),
 
     application:start(slerl),
     {ok, [Bits]} = file:consult("login.config"),

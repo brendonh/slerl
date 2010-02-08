@@ -13,7 +13,7 @@
 -include("slerl_util.hrl").
 
 %% API
--export([start_link/2]).
+-export([start_link/2, parse_packet/2]).
 
 %% gen_fsm callbacks
 -export([init/1, state_name/2, state_name/3, handle_event/3,
@@ -70,10 +70,19 @@ handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
 
-handle_sync_event(Event, From, StateName, State) ->
+handle_sync_event(_Event, _From, StateName, State) ->
     Reply = ok,
     {reply, Reply, StateName, State}.
 
+
+handle_info({udp, Socket, IP, Port, Packet}, StateName,
+            #state{socket=Socket, sim=#sim{ip=IP, port=Port}}=State) ->
+    io:format("~p~n", [Packet]),
+    {next_state, StateName, State};
+
+handle_info({udp, Socket, IP, Port, Packet}, StateName, State) ->
+    ?DBG({udp_mismatch, Socket, IP, Port, State, Packet}),
+    {next_state, StateName, State};
 
 handle_info(Info, StateName, State) ->
     ?DBG({info, Info}),
@@ -103,6 +112,9 @@ send(Packet, State) ->
 reliable(M) -> M#message{reliable=true}.
     
 
+bool(1) -> true;
+bool(0) -> false.
+     
 unbool(true) -> 1;
 unbool(false) -> 0.
      
@@ -127,12 +139,31 @@ build_packet(Message, State) ->
 
 
 
+
+parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
+                Resent:1/integer-unit:1, _Acks:1/integer-unit:1,
+                0:4/integer-unit:1,
+                _Sequence:4/integer-unit:8, ExtraHeader:1/integer-unit:8,
+                Rest/binary>>, _State) ->
+    Skeleton  = #message{zerocoded=bool(Zeroed), reliable=bool(Reliable), resend=bool(Resent)},
+    {Message,Tail} = parse_packet2(ExtraHeader, Rest, Skeleton),
+    ?DBG({Message, Tail}),
+    ok.
+    
+
+parse_packet2(0, Rest, Message) ->
+    slerl_message:parse_message(Rest, Message);
+parse_packet2(Count, Packet, Message) ->
+    <<Extra:Count/binary, Rest/binary>> = Packet,
+    slerl_message:parse_message(Rest, Message#message{extra=Extra}).
+
+
 send_connect_packets(State) ->
     State1 = use_circuit_code(State),
     State2 = complete_agent_movement(State1),
-    State3 = agent_update(State2),
-    State4 = ping(State3),
-    State4.
+    %State3 = agent_update(State2),
+    %State4 = ping(State3),
+    State2.
 
 use_circuit_code(State) ->    
     Sim = State#state.sim,
@@ -162,7 +193,6 @@ complete_agent_movement(State) ->
 
 agent_update(State) ->
     Sim = State#state.sim,
-    Code = Sim#sim.circuitCode,
 
     Message = slerl_message:build_message(
                 'AgentUpdate',

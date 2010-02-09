@@ -7,7 +7,7 @@
 %%%-------------------------------------------------------------------
 -module(slerl_sim).
 
--behaviour(gen_fsm).
+-behaviour(gen_server).
 
 -include("slerl.hrl").
 -include("slerl_util.hrl").
@@ -16,8 +16,7 @@
 -export([start_link/2, parse_packet/2]).
 
 %% gen_fsm callbacks
--export([init/1, state_name/2, state_name/3, handle_event/3,
-         handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(PORT, 0).
 -define(MTU, 1200). % It's what libOMV uses.
@@ -27,7 +26,11 @@
   info,
   sim,
   socket,
-  sequence=0
+  sequence=0,
+
+  pendingPackets,
+  queuedAcks
+  
 }).
 
 
@@ -36,11 +39,11 @@
 %%====================================================================
 
 start_link(Info, Sim) ->
-    gen_fsm:start_link(?MODULE, [Info, Sim], []).
+    gen_server:start_link(?MODULE, [Info, Sim], []).
 
 
 %%====================================================================
-%% gen_fsm callbacks
+%% gen_server callbacks
 %%====================================================================
 
 init([Info, Sim]) ->
@@ -49,52 +52,44 @@ init([Info, Sim]) ->
     State = #state{info=Info, 
                    sim=Sim, 
                    socket=Socket,
-                   sequence=1},
+                   sequence=1,
+                   pendingPackets=gb_trees:empty(),
+                   queuedAcks=[]},
 
     NewState = send_connect_packets(State),
     self() ! quicktest,
 
-    {ok, state_name, NewState}.
+    {ok, NewState}.
 
 
-state_name(_Event, State) ->
-    {next_state, state_name, State}.
+handle_call(_Msg, _From, State) ->
+    {reply, ok, State}.
 
 
-state_name(_Event, _From, State) ->
-    Reply = ok,
-    {reply, Reply, state_name, State}.
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
 
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
-
-
-handle_sync_event(_Event, _From, StateName, State) ->
-    Reply = ok,
-    {reply, Reply, StateName, State}.
-
-
-handle_info({udp, Socket, IP, Port, Packet}, StateName,
+handle_info({udp, Socket, IP, Port, Packet}, 
             #state{socket=Socket, sim=#sim{ip=IP, port=Port}}=State) ->
     io:format("~p~n", [Packet]),
-    {next_state, StateName, State};
+    {noreply, State};
 
-handle_info({udp, Socket, IP, Port, Packet}, StateName, State) ->
+handle_info({udp, Socket, IP, Port, Packet}, State) ->
     ?DBG({udp_mismatch, Socket, IP, Port, State, Packet}),
-    {next_state, StateName, State};
+    {noreply, State};
 
-handle_info(Info, StateName, State) ->
-    ?DBG({info, Info}),
-    {next_state, StateName, State}.
+handle_info(Info, State) ->
+    ?DBG({unexpected_info, Info}),
+    {no_reply, State}.
 
 
-terminate(_Reason, _StateName, _State) ->
+terminate(_Reason, _State) ->
     ok.
 
 
-code_change(_OldVsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 
 %%--------------------------------------------------------------------

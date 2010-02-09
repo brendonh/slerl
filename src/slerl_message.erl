@@ -34,7 +34,7 @@ messageID(M) -> {M#messageDef.frequency, M#messageDef.number}.
 %% Message construction
 %%-------------------------------------------------------------------
 
-build_message(Name, Args) ->
+build_message(Name, Args) ->    
     Message = ets:lookup_element(slerl_messages, Name, 2),
     Blocks = build_blocks(Message#messageDef.blocks, Args),
     Bin = list_to_binary([Message#messageDef.messageID|Blocks]),
@@ -117,7 +117,14 @@ parse_message2(MID, Rest, Message) ->
     Decoded = if Message#message.zerocoded -> zero_decode(Rest);
                  true -> Rest end,
     {Blocks, Tail} = parse_blocks(Spec#messageDef.blocks, Decoded, []),
-    {Message#message{spec=Spec, message=Blocks}, Tail}.
+
+    case {Tail, Spec#messageDef.name} of
+        {_, "TestMessage"} -> ok;
+        {<<>>, _} -> ok;
+        _ -> ?DBG({tail, Spec#messageDef.name, Tail})
+    end,
+
+    Message#message{spec=Spec, message=Blocks}.
 
 
 parse_blocks([], Tail, Buff) ->

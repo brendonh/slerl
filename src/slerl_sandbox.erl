@@ -6,7 +6,7 @@
 -export([test/0]).
 
 
--define(MSGS, [
+-define(MSGS_OLD, [
 <<208,0,0,0,1,0,255,255,1,131,203,30,34,250,125,1,73,132,140,125,10,66,122,63,
   212,162,7,72,111,116,116,105,101,0,1,9,86,101,115,117,118,105,110,111,0,1,1,
   0,25,1,0,1,0,0,0,1,1>>,
@@ -44,8 +44,15 @@
   125,10,66,122,63,212,162>>]).
 
 
+-define(MSGS, [
+<<224,0,0,0,1,0,255,255,1,131,203,30,34,250,125,1,73,132,140,125,10,66,122,63,
+  212,162,7,72,111,116,116,105,101,0,1,9,86,101,115,117,118,105,110,111,0,1,1,
+  0,25,1,0,1>>]).
+
 
 test() ->
     slerl_message:parse_message_template(),
     %slerl_sim:parse_packet(hd(?MSGS), none).
-    [slerl_sim:parse_packet(M, none) || M <- ?MSGS].
+    %[slerl_sim:parse_packet(M, none) || M <- ?MSGS].
+    ?DBG(slerl_message:build_message('StartPingCheck', [[0, 0]])),
+    ?DBG(slerl_message:build_message('PacketAck', [[ [1],[2],[3] ]])).

@@ -67,7 +67,7 @@ parse_type("U16Quat") -> not_used;
 parse_type("S16Array") -> not_used.
 
 precalc_messageID(high, Number) -> <<Number:1/integer-unit:8>>;
-precalc_messageID(fixed, Number) -> <<Number:1/integer-unit:8>>;
+precalc_messageID(fixed, Number) -> <<Number:1/integer-unit:32>>;
 precalc_messageID(medium, Number) -> <<255:1/integer-unit:8, Number:1/integer-unit:8>>;
 precalc_messageID(low, Number) -> <<255:1/integer-unit:8, 255:1/integer-unit:8, Number:1/integer-unit:16>>.
 

@@ -27,16 +27,17 @@
 launch() ->
     application:start(inets),
     application:start(ssl),
-
-    ok = slerl_message:parse_message_template(),
-
     application:start(slerl),
     {ok, [Bits]} = file:consult("login.config"),
     First = ?GV(first, Bits),
     Last = ?GV(last, Bits),
     Password = ?GV(pass, Bits),
-    slerl:login(First, Last, Password),
-    ok.
+    case slerl:login(First, Last, Password) of
+        ok -> ok;
+        Other ->
+            ?DBG({oh_noes, Other}),
+            init:stop()
+    end.
 
 
 
@@ -45,6 +46,7 @@ launch() ->
 %%====================================================================
 
 start(_Type, StartArgs) ->
+    ok = slerl_message:parse_message_template(),
     case slerl_sup:start_link(StartArgs) of
         {ok, Pid} -> 
             {ok, Pid};

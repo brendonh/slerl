@@ -27,6 +27,7 @@
   zerocoded,
   reliable=false,
   resend=false,
+  sequence,
   extra
 }).
 

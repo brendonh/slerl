@@ -8,7 +8,7 @@ value_of(T) -> element(3, T).
 
 assemble_message(Name, Freq, Num, Trust, Zero, Flag, Blocks) ->
    {list_to_atom(Name), 
-    #messageDef{name=Name, 
+    #messageDef{name=list_to_atom(Name),
                 frequency=Freq, 
                 number=Num, 
                 messageID=precalc_messageID(Freq, Num),

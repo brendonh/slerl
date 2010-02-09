@@ -20,6 +20,10 @@
 
 -define(MTU, 1200). 
 -define(ACK_PACKET_TIMER, 500).
+-define(RESEND_PACKET_TIMER, 4000).
+-define(MAX_RESENDS, 2).
+
+-define(RESEND_TIMER_MICROSECONDS, ?RESEND_PACKET_TIMER * 1000).
 
 -define(PORT, 0).
 -define(SOCKET_OPTIONS, [binary, {active, true}]).
@@ -31,7 +35,9 @@
   sequence,
   pendingPackets,
   queuedAcks,
-  ackPacketTimer
+
+  ackTimer,
+  resendTimer
 }).
 
 
@@ -59,7 +65,9 @@ init([Info, Sim]) ->
                    socket=Socket,
                    sequence=1,
                    pendingPackets=gb_trees:empty(),
-                   queuedAcks=[]},
+                   queuedAcks=[],
+                   resendTimer=none,
+                   ackTimer=none},
 
     {ok, State}.
 
@@ -75,7 +83,11 @@ handle_cast(_Msg, State) ->
 
 
 handle_info(ack_packet_timer, State) ->
-    {noreply, send_ack_packet(State)};
+    {noreply, send_ack_packet(State#state{ackTimer=none})};
+
+handle_info(resend_packet_timer, State) ->
+    ?DBG({resend_timeout}),
+    {noreply, resend_packets(State#state{resendTimer=none})};
 
 handle_info({udp, Socket, IP, Port, Packet}, 
             #state{socket=Socket, sim=#sim{ip=IP, port=Port}}=State) ->
@@ -110,10 +122,12 @@ bool(0) -> false.
 
 handle_packet(Packet, State) ->
     try parse_packet(Packet, State) of
-        Message -> 
+        {Message, Acks} -> 
             Spec = Message#message.spec,
-            ?DBG({got, Spec#messageDef.name}),
-            handle_message(Message, State)
+            NewState = process_acks(Acks, State),
+            ?DBG({got, Message#message.sequence, Message#message.reliable, 
+                  Spec#messageDef.name, Acks, NewState#state.queuedAcks}),
+            handle_message(Message, NewState)
     catch Type:Error ->
                         ?DBG({error, Type, Error}),
                         State
@@ -121,15 +135,15 @@ handle_packet(Packet, State) ->
 
 
 handle_message(Message, State) ->
-
-    case Message#message.reliable of
+    NewState = case Message#message.reliable of
         true -> 
             Acks = State#state.queuedAcks,
             NewAcks = [Message#message.sequence|Acks],
-            State#state{queuedAcks=NewAcks};
+            update_ack_timer(State#state{queuedAcks=NewAcks});
         false ->
             State
-    end.
+    end,
+    dispatch_message(Message#message.spec, Message, NewState).
 
 
 parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
@@ -141,17 +155,15 @@ parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
     
     Acks = parse_acks(AckBlock, []),
 
-    case Acks of
-        [] -> ok;
-        _ -> ?DBG({got_acks, Acks})
-    end,
-
     Skeleton  = #message{
       zerocoded=bool(Zeroed), 
       reliable=bool(Reliable), 
       resend=bool(Resent),
       sequence=Sequence},
-    parse_message(ExtraHeader, MessageBlock, Skeleton).
+    
+    Message =  parse_message(ExtraHeader, MessageBlock, Skeleton),
+    {Message, Acks}.
+
 
 
 split_packet(false, Packet) ->
@@ -175,14 +187,14 @@ parse_acks(<<X:1/integer-unit:32, Rest/binary>>, Buff) ->
 parse_acks(_Other, _) -> []. % Screw it.
 
 
-update_ack_timer(#state{ackPacketTimer=none}=State) ->
-    {ok, TRef} = timer:send_after(?ACK_PACKET_TIMER, ack_packet_timer),
-    State#state{ackPacketTimer=TRef};
-update_ack_timer(#state{ackPacketTimer=OldTRef}=State) ->
-    timer:cancel(OldTRef),
-    {ok, TRef} = timer:send_after(?ACK_PACKET_TIMER, ack_packet_timer),
-    State#state{ackPacketTimer=TRef}.
-
+process_acks([], State) -> 
+    State;
+process_acks([Ack|Rest], State) ->
+    ?DBG({acked, Ack}),
+    Pending = State#state.pendingPackets,
+    NewPending = gb_trees:delete_any(Ack, Pending),
+    NewState = State#state{pendingPackets=NewPending},
+    process_acks(Rest, NewState).
 
 
 %%====================================================================
@@ -201,19 +213,23 @@ assign_sequence(Message, State) ->
     {Message#message{sequence=Seq}, State#state{sequence=Seq+1}}.
 
 
-dispatch_message(Message, true, State) ->
+send_message(Message, true, State) ->
     {RelMessage, NewState} = assign_sequence(reliable(Message), State),
-    NewState2 = dispatch_message(RelMessage, NewState),
+    NewState2 = send_message(RelMessage, NewState),
     Pending = NewState2#state.pendingPackets,    
-    NewPending = gb_trees:insert(RelMessage#message.sequence, RelMessage, Pending),
+    SentCount = RelMessage#message.sentCount,
+    NewPending = gb_trees:insert(RelMessage#message.sequence, 
+                                 RelMessage#message{sentCount=SentCount+1, 
+                                                    lastSent=now()},
+                                 Pending),
     ?DBG({pending_packet, RelMessage#message.sequence}),
-    NewState2#state{pendingPackets=NewPending};
-dispatch_message(Message, false, State) ->
+    update_resend_timer(NewState2#state{pendingPackets=NewPending});
+send_message(Message, false, State) ->
     {M, S} = assign_sequence(Message, State),
-    dispatch_message(M, S).
+    send_message(M, S).
 
 
-dispatch_message(Message, State) ->
+send_message(Message, State) ->
     Spec = Message#message.spec,
     ?DBG({sending, Spec#messageDef.name}),
     {Packet, NewState} = build_packet(Message, State),
@@ -255,22 +271,83 @@ ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)
     {[<<Count:1/integer-unit:8>>|lists:reverse(Bits)], State};
 ack_suffix(BS, Count, Bits, #state{queuedAcks=[Ack|Rest]}=State) ->
     ack_suffix(BS+4, Count+1, [<<Ack:1/integer-unit:32>>|Bits], State#state{queuedAcks=Rest}).
-
-
+ 
 
 %%====================================================================
-%% Timer callbacks
+%% Timers
 %%====================================================================
+
+update_ack_timer(#state{ackTimer=none}=State) ->
+    {ok, TRef} = timer:send_after(?ACK_PACKET_TIMER, ack_packet_timer),
+    State#state{ackTimer=TRef};
+update_ack_timer(#state{ackTimer=OldTRef}=State) ->
+    timer:cancel(OldTRef),
+    {ok, TRef} = timer:send_after(?ACK_PACKET_TIMER, ack_packet_timer),
+    State#state{ackTimer=TRef}.
+
 
 send_ack_packet(#state{queuedAcks=[]}=State) -> State;
 send_ack_packet(#state{queuedAcks=Acks}=State) ->
+    %% Should we max this out at 255?
     AckGroups = [ [A] || A <- lists:reverse(Acks) ],
     Message = slerl_message:build_message('PacketAck', [AckGroups]),
     ?DBG({sending_ack_packet, Acks}),
-    dispatch_message(Message, true, State#state{queuedAcks=[]}).
+    send_message(Message, true, State#state{queuedAcks=[]}).
      
 
 
+update_resend_timer(#state{resendTimer=none}=State) ->
+    ?DBG(setting_resend_timer),
+    {ok, TRef} = timer:send_after(?RESEND_PACKET_TIMER, resend_packet_timer),
+    State#state{resendTimer=TRef};
+update_resend_timer(State) -> 
+    ?DBG(resend_timer_exists),
+    State.
+
+
+resend_packets(#state{pendingPackets=Pending}=State) ->
+    Now = now(),
+    resend_expired(gb_trees:to_list(Pending), Now, 
+                   State#state{pendingPackets=gb_trees:empty()}).
+
+
+resend_expired([], _Now, State) ->
+    State;
+resend_expired([{_ID, #message{lastSent=LS}=M}|Rest], Now, State) ->
+    TD = timer:now_diff(Now, LS),
+    if TD >= ?RESEND_TIMER_MICROSECONDS ->
+            if M#message.sentCount > ?MAX_RESENDS ->
+                    ?DBG({packet_lost, M}),
+                    resend_expired(Rest, Now, State);
+               true ->
+                    NewMessage = M#message{lastSent=now(), 
+                                           sentCount=M#message.sentCount,
+                                           resend=true},
+                    ?DBG({resending, NewMessage}),
+                    NewState = send_message(NewMessage, true, State),
+                    resend_expired(Rest, Now, NewState)
+            end;
+       true -> 
+            Pending = State#state.pendingPackets,
+            NewPending = gb_trees:insert(M#message.sequence, M, Pending),
+            NewState = State#state{pendingPackets=NewPending},
+            resend_expired(Rest, Now, NewState)
+    end.
+
+
+%%====================================================================
+%% Dispatch
+%%====================================================================
+
+dispatch_message(#messageDef{name='PacketAck'}, Message, State) ->
+    [{_, [Bits]}] = Message#message.message,
+    IDs = [ID || {_, ID} <- Bits],
+    process_acks(IDs, State);
+dispatch_message(_Spec, _Message, State) ->
+    State.
+
+
+                    
 %%====================================================================
 %% Connect
 %%====================================================================
@@ -291,7 +368,7 @@ use_circuit_code(State) ->
                 'UseCircuitCode',
                 [ [Code, Sim#sim.sessionID, Sim#sim.agentID] ]),
 
-    dispatch_message(Message, true, State).
+    send_message(Message, true, State).
     
 
 complete_agent_movement(State) ->
@@ -302,7 +379,7 @@ complete_agent_movement(State) ->
                 'CompleteAgentMovement',
                 [ [Sim#sim.agentID, Sim#sim.sessionID, Code ] ]),
     
-    dispatch_message(Message, true, State).
+    send_message(Message, true, State).
 
 
 agent_update(State) ->
@@ -321,7 +398,7 @@ agent_update(State) ->
                    0, 0
                   ] ]),
     
-    dispatch_message(Message, true, State).
+    send_message(Message, true, State).
     
 
 ping(State) ->

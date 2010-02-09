@@ -119,7 +119,7 @@ parse_message2(MID, Rest, Message) ->
     {Blocks, Tail} = parse_blocks(Spec#messageDef.blocks, Decoded, []),
 
     case {Tail, Spec#messageDef.name} of
-        {_, "TestMessage"} -> ok;
+        {_, 'TestMessage'} -> ok;
         {<<>>, _} -> ok;
         _ -> ?DBG({tail, Spec#messageDef.name, Tail})
     end,

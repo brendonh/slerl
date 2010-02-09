@@ -28,7 +28,9 @@
   reliable=false,
   resend=false,
   sequence,
-  extra
+  extra,
+  sentCount=0,
+  lastSent
 }).
 
 

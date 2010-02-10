@@ -252,8 +252,8 @@ send_message(Message, false, State) ->
 
 send_message(Message, State) ->
     Spec = Message#message.spec,
-    ?DBG({sending, Spec#messageDef.name}),
     {Packet, NewState} = build_packet(Message, State),
+    ?DBG({sending, Spec#messageDef.name}),
     send(Packet, NewState).
     
 
@@ -267,17 +267,20 @@ send(Bin, State) ->
 
 build_packet(Message, State) ->
     Spec = Message#message.spec,
+    Seq = Message#message.sequence,
+
+    BS = 6 + byte_size(Message#message.message),
+    {AckSuffix, NewState} = ack_suffix(BS, 0, [], State),
+
     Flags = make_flags([Spec#messageDef.zerocoded,
                         Message#message.reliable,
                         Message#message.resend,
-                        false]),
-    
-    Seq = Message#message.sequence,
+                        AckSuffix /= []]),    
+
     Header = [Flags, <<Seq:4/integer-unit:8, 0:1/integer-unit:8>>],
-    Packet = list_to_binary([Header,Message#message.message]),
-    BS = byte_size(Packet),
-    {AckSuffix, NewState} = ack_suffix(BS, 0, [], State),
-    {list_to_binary([Packet, AckSuffix]), NewState#state{sequence=Seq+1}}.
+    Packet = list_to_binary([Header,Message#message.message,AckSuffix]),
+
+    {Packet, NewState#state{sequence=Seq+1}}.
 
 
 make_flags(Bits) ->
@@ -291,7 +294,7 @@ ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)
   when BS == ?MTU orelse Count == 255 orelse Acks == [] ->
     % Wrong, I think. Count should be at the end. Can't test it until
     % we're actually sending packets out regularly.
-    {[<<Count:1/integer-unit:8>>|lists:reverse(Bits)], State};
+    {lists:reverse([<<Count:1/integer-unit:8>>|Bits]), State};
 ack_suffix(BS, Count, Bits, #state{queuedAcks=[Ack|Rest]}=State) ->
     ack_suffix(BS+4, Count+1, [<<Ack:1/integer-unit:32>>|Bits], State#state{queuedAcks=Rest}).
  
@@ -380,7 +383,6 @@ send_ping(State) ->
 %%====================================================================
 
 dispatch_message(#messageDef{name='PacketAck'}, Message, State) ->
-    %?DBG({ack, Message#message.message}),
     [{_, Groups}] = Message#message.message,
     IDs = [ID || [{_, ID}] <- Groups],
     process_acks(IDs, State);
@@ -478,12 +480,3 @@ agent_update(State) ->
                   ] ]),
     
     send_message(Message, true, State).
-    
-
-ping(State) ->
-    Message = slerl_message:build_message(
-                'StartPingCheck', [[0, 0]]),
-    
-    {Packet, State1} = build_packet(Message, State),    
-    send(Packet, State1),
-    State1.

@@ -18,10 +18,15 @@
 %% gen_fsm callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+% These values generally follow libOMV settings.
 -define(MTU, 1200). 
 -define(ACK_PACKET_TIMER, 500).
 -define(RESEND_PACKET_TIMER, 4000).
 -define(MAX_RESENDS, 2).
+-define(PING_INTERVAL, 5000). % Down from libOMV's 2200
+
+% Number of pings to average
+-define(PING_WINDOW, 5).
 
 -define(RESEND_TIMER_MICROSECONDS, ?RESEND_PACKET_TIMER * 1000).
 
@@ -38,7 +43,12 @@
   queuedAcks,
 
   ackTimer,
-  resendTimer
+  resendTimer,
+
+  pingID,
+  pendingPings,
+  pingWindow
+
 }).
 
 
@@ -69,9 +79,15 @@ init([Name, SimInfo]) ->
                    pendingPackets=gb_trees:empty(),
                    queuedAcks=[],
                    resendTimer=none,
-                   ackTimer=none},
+                   ackTimer=none,
+                   pendingPings=[],
+                   pingID=1,
+                   pingWindow=[]
+                  },
 
     ets:insert(Name, {{udp, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
+
+    timer:send_interval(?PING_INTERVAL, ping_timer),
 
     {ok, State}.
 
@@ -91,6 +107,9 @@ handle_info(ack_packet_timer, State) ->
 
 handle_info(resend_packet_timer, State) ->
     {noreply, resend_packets(State#state{resendTimer=none})};
+
+handle_info(ping_timer, State) ->
+    {noreply, send_ping(State)};
 
 handle_info({udp, Socket, IP, Port, Packet}, 
             #state{socket=Socket, sim=#sim{ip=IP, port=Port}}=State) ->
@@ -338,18 +357,75 @@ resend_expired([{_ID, #message{lastSent=LS}=M}|Rest], Now, State) ->
     end.
 
 
+send_ping(State) ->
+    PingID = State#state.pingID,
+    Unacked = gb_trees:keys(State#state.pendingPackets),    
+    OldestUnacked = case Unacked of
+                        [] -> 0;
+                        _ -> lists:min(Unacked)
+                    end,
+
+    Message = slerl_message:build_message(
+                'StartPingCheck', [[PingID, OldestUnacked]]),
+    
+    NewState = send_message(Message, false, State),
+    NewState#state{
+      pendingPings=[{PingID, now()}|NewState#state.pendingPings], 
+      pingID=PingID+1
+     }.
+
+
 %%====================================================================
 %% Dispatch
 %%====================================================================
 
 dispatch_message(#messageDef{name='PacketAck'}, Message, State) ->
-    [{_, [Bits]}] = Message#message.message,
-    IDs = [ID || {_, ID} <- Bits],
+    %?DBG({ack, Message#message.message}),
+    [{_, Groups}] = Message#message.message,
+    IDs = [ID || [{_, ID}] <- Groups],
     process_acks(IDs, State);
+
+dispatch_message(#messageDef{name='StartPingCheck'}, Message, State) ->
+    [{_,[{_,PingID},{_, OldestUnacked}]}] = Message#message.message,
+    Reply = slerl_message:build_message('CompletePingCheck', [[PingID]]),
+    NewState = send_message(Reply, false, State),
+    remove_old_acks(OldestUnacked, NewState);
+
+dispatch_message(#messageDef{name='CompletePingCheck'}, Message, State) ->
+    [{_, [{_, PingID}]}] = Message#message.message,
+    {SentTime, NewPending} = find_ping(PingID, State#state.pendingPings),
+
+    NewWindow = case SentTime of
+                    none -> 
+                        State#state.pingWindow;
+                    _ -> 
+                        Diff = timer:now_diff(now(), SentTime),
+                        trim_pings([Diff|State#state.pingWindow], [], ?PING_WINDOW)
+                end,
+    ?DBG({average_ping, lists:sum(NewWindow) / (length(NewWindow)*1000)}),
+    State#state{pendingPings=NewPending, pingWindow=NewWindow};
+
 dispatch_message(_Spec, _Message, State) ->
     State.
 
 
+remove_old_acks(Oldest, #state{pendingPackets=Pending}=State) ->
+    NewPending = [{ID, M} || {ID, M} <- gb_trees:to_list(Pending),
+                             ID >= Oldest],
+    State#state{pendingPackets=gb_trees:from_orddict(NewPending)}.
+
+
+find_ping(PingID, Pending) ->
+    find_ping(PingID, Pending, [], Pending).
+
+find_ping(_, [], _, Orig) -> {none, Orig};
+find_ping(PingID, [{PingID,Time}|_], Buff, _) -> {Time, lists:reverse(Buff)};
+find_ping(PingID, [Other|Rest], Buff, Orig) -> find_ping(PingID, Rest, [Other|Buff], Orig).
+
+trim_pings([], Buff, _) -> lists:reverse(Buff);
+trim_pings(_, Buff, Count) when Count == 0 -> lists:reverse(Buff);
+trim_pings([P|Rest], Buff, Count) -> trim_pings(Rest, [P|Buff], Count-1).
+    
                     
 %%====================================================================
 %% Connect

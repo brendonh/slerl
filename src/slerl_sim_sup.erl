@@ -28,7 +28,6 @@ start_link(Name) ->
 
 
 start_sim_group(Name, SimInfo) ->
-    ?DBG({procs, Name, ets:tab2list(Name)}),
     Self = ets:lookup_element(Name, sim_sup, 2),
     supervisor:start_child(Self, [SimInfo]),
     Sim = ets:lookup_element(Name, {sim, SimInfo#sim.ip, SimInfo#sim.port}, 2),

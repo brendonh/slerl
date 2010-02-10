@@ -13,7 +13,8 @@
 -include_lib("xmerl/include/xmerl.hrl").
 
 -define(HTTP_HEADERS, [{"Accept", "*/*"},
-                       {"User-Agent", "Erlang/slerl"}]).
+                       {"User-Agent", "Erlang/slerl"},
+                       {"Connection", "close"}]).
 -define(HTTP_OPTIONS, [{relaxed, true}]).
 -define(REQ_OPTIONS, []).
 

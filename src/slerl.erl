@@ -25,7 +25,6 @@ login(First, Last, Password, Start) ->
         {ok, Info} -> 
             Name = list_to_atom(lists:flatten([First, $\s, Last])),
             ?DBG({xmlrpc_login_succeeded, Name}),
-            %{Name, Info};
             start_bot(Name, Info);
         Other -> Other
     end.
@@ -36,7 +35,4 @@ start_bot(Name, Info) ->
     slerl_sup:start_bot(Name, Info),
     gen_server:cast(Name, initial_connect),
     {ok, Name}.
-    %?DBG({procs, ets:tab2list(Name)}),
-    %,
-    %{ok, Name}.
 

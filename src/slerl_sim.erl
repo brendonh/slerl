@@ -19,6 +19,7 @@
 -export([init/1, 
          uninitialized/2, uninitialized/3, 
          connecting/2, connecting/3, 
+         connected/2, connected/3,
          handle_event/3,
          handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 
@@ -56,7 +57,7 @@ init([Name, SimInfo]) ->
 
 
 uninitialized(start_connect, State) ->
-    start_connect(State),
+    send_connect_packets(State),
     {next_state, connecting, State}.
 
 uninitialized(_Event, _From, State) ->
@@ -64,6 +65,9 @@ uninitialized(_Event, _From, State) ->
     {reply, Reply, uninitialized, State}.
 
 
+
+connecting({message, 'RegionHandshake', Message, Conn}, State) ->
+    handshake_received(Message, Conn, State);
 
 connecting(Event, State) ->
     ?DBG({connecting_event, Event}),
@@ -73,6 +77,14 @@ connecting(_Event, _From, State) ->
     {reply, ok, connecting, State}.
 
 
+connected(Event, State) ->
+    ?DBG({connected_event, Event}),
+    {next_state, connected, State}.
+
+connected(_Event, _From, State) ->
+    {reply, ok, connected, State}.
+
+
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
@@ -80,6 +92,10 @@ handle_sync_event(_Event, _From, StateName, State) ->
     Reply = ok,
     {reply, Reply, StateName, State}.
 
+
+
+handle_info({message, _, _, _}=Message, StateName, State) ->
+    apply(?MODULE, StateName, [Message, State]); % Hmm.
 
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
@@ -97,10 +113,59 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
     
-start_connect(State) ->
-    ?DBG(starting_connect),
-    gen_server:cast(get_conn(State), start_connect).
-
-
 get_conn(#state{name=Name, connKey=ConnKey}) ->
     ets:lookup_element(Name, ConnKey, 2).
+
+
+send_message(Message, Reliable, State) ->
+    gen_server:cast(get_conn(State), {send, Message, Reliable}).
+
+
+subscribe(MessageName, State) ->
+    gen_server:cast(get_conn(State), {subscribe, MessageName, self()}).
+
+
+%%====================================================================
+%% Connect Sequence
+%%====================================================================
+
+send_connect_packets(State) ->
+    subscribe('RegionHandshake', State),
+    use_circuit_code(State),
+    complete_agent_movement(State).
+
+
+use_circuit_code(State) ->    
+    Sim = State#state.simInfo,
+    Code = Sim#sim.circuitCode,
+
+    Message = slerl_message:build_message(
+                'UseCircuitCode',
+                [ [Code, Sim#sim.sessionID, Sim#sim.agentID] ]),
+
+    send_message(Message, true, State).
+    
+
+complete_agent_movement(State) ->
+    Sim = State#state.simInfo,
+    Code = Sim#sim.circuitCode,
+
+    Message = slerl_message:build_message(
+                'CompleteAgentMovement',
+                [ [Sim#sim.agentID, Sim#sim.sessionID, Code ] ]),
+    
+    send_message(Message, true, State).
+
+
+%%====================================================================
+%% Arrival
+%%====================================================================
+
+handshake_received(Message, _Conn, State) ->
+    
+    SimName = slerl_util:extract_string(
+                slerl_util:get_field(["RegionInfo", "SimName"], 
+                                     Message#message.message)),
+    
+    ?DBG({handshake, SimName}),
+    {next_state, connected, State}.

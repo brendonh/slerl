@@ -22,7 +22,8 @@
 -record(state, {
   name,
   info,
-  sup
+  sup,
+  currentSim
 }).
 
 %%====================================================================
@@ -63,13 +64,7 @@ handle_cast(initial_connect, State) ->
       agentID=AgentID,
       sessionID=SessionID}, 
 
-    ?DBG({bot_procs, State#state.name, ets:tab2list(State#state.name)}),
-
     slerl_sim_sup:start_sim_group(State#state.name, SimInfo),
-
-    %gen_fsm:send_event(SimProc, 
-
-    % CONNECT
 
     {noreply, State}.
 

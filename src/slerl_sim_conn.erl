@@ -33,9 +33,14 @@
 -define(PORT, 0).
 -define(SOCKET_OPTIONS, [binary, {active, true}]).
 
+-define(CLEAN_SUBSCRIPTIONS_INTERVAL, 60000).
+
+-define(DEBUG, false).
+-define(TRACE(T), ?DEBUG andalso ?DBG(T)).
+
 -record(state, {
   name,
-  sim,
+  simInfo,
 
   socket,
   sequence,
@@ -47,7 +52,9 @@
 
   pingID,
   pendingPings,
-  pingWindow
+  pingWindow,
+
+  subscriptions
 
 }).
 
@@ -72,8 +79,8 @@ init([Name, SimInfo]) ->
 
     {ok, Socket} = gen_udp:open(?PORT, ?SOCKET_OPTIONS),
 
-    State = #state{name = Name,
-                   sim=SimInfo,
+    State = #state{name=Name,
+                   simInfo=SimInfo,
                    socket=Socket,
                    sequence=1,
                    pendingPackets=gb_trees:empty(),
@@ -82,22 +89,43 @@ init([Name, SimInfo]) ->
                    ackTimer=none,
                    pendingPings=[],
                    pingID=1,
-                   pingWindow=[]
+                   pingWindow=[],
+                   subscriptions=dict:new()
                   },
 
     ets:insert(Name, {{udp, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
 
     timer:send_interval(?PING_INTERVAL, ping_timer),
+    timer:send_interval(?CLEAN_SUBSCRIPTIONS_INTERVAL, clean_subscriptions_timer),
 
     {ok, State}.
 
 
+handle_call(get_ping, _From, State) ->
+    Window = State#state.pingWindow,
+    Reply = lists:sum(Window) / (length(Window)*1000),
+    {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast(start_connect, State) ->
-    {noreply, send_connect_packets(State)};
+handle_cast({subscribe, MessageName, Proc}, State) -> 
+    NewSubs = dict:append(MessageName, Proc, State#state.subscriptions),
+    {noreply, State#state{subscriptions=NewSubs}};
+
+handle_cast({unsubscribe, MessageName, Proc}, State) -> 
+    Subs = State#state.subscriptions,
+    NewSubs = case dict:find(MessageName, Subs) of
+                  error -> Subs;
+                  {ok, OldList} ->
+                      NewList = [P || P <- OldList, P /= Proc],
+                      dict:store(MessageName, NewList, Subs)
+              end,
+    {noreply, State#state{subscriptions=NewSubs}};
+
+handle_cast({send, Message, Reliable}, State) ->
+    {noreply, send_message(Message, Reliable, State)};
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -108,20 +136,30 @@ handle_info(ack_packet_timer, State) ->
 handle_info(resend_packet_timer, State) ->
     {noreply, resend_packets(State#state{resendTimer=none})};
 
+handle_info(clean_subscriptions_timer, State) ->
+    ?TRACE(cleaning_subscriptions),
+    Subs = State#state.subscriptions,
+    NewSubsList = dict:fold(
+                    fun(K, V, A) ->
+                            V2 = [P || P <- V, is_process_alive(P)],
+                            [{K,V2}|A]
+                    end, [], Subs),
+    {noreply, State#state{subscriptions=dict:from_list(NewSubsList)}};
+
 handle_info(ping_timer, State) ->
     {noreply, send_ping(State)};
 
 handle_info({udp, Socket, IP, Port, Packet}, 
-            #state{socket=Socket, sim=#sim{ip=IP, port=Port}}=State) ->
+            #state{socket=Socket, simInfo=#sim{ip=IP, port=Port}}=State) ->
     NewState = handle_packet(Packet, State),
     {noreply, NewState};
 
 handle_info({udp, Socket, IP, Port, Packet}, State) ->
-    ?DBG({udp_mismatch, Socket, IP, Port, State, Packet}),
+    ?TRACE({udp_mismatch, Socket, IP, Port, State, Packet}),
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?DBG({unexpected_info, Info}),
+    ?TRACE({unexpected_info, Info}),
     {noreply, State}.
 
 
@@ -147,10 +185,10 @@ handle_packet(Packet, State) ->
         {Message, Acks} -> 
             Spec = Message#message.spec,
             NewState = process_acks(Acks, State),
-            ?DBG({got, Message#message.sequence, Spec#messageDef.name}),
+            ?TRACE({got, Message#message.sequence, Spec#messageDef.name}),
             handle_message(Message, NewState)
     catch Type:Error ->
-                        ?DBG({error, Type, Error}),
+                        ?TRACE({error, Type, Error}),
                         State
                 end.
 
@@ -164,7 +202,8 @@ handle_message(Message, State) ->
         false ->
             State
     end,
-    dispatch_message(Message#message.spec, Message, NewState).
+    Spec = Message#message.spec,
+    dispatch_message(Spec#messageDef.name, Message, NewState).
 
 
 parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
@@ -211,7 +250,7 @@ parse_acks(_Other, _) -> []. % Screw it.
 process_acks([], State) -> 
     State;
 process_acks([Ack|Rest], State) ->
-    %?DBG({acked, Ack}),
+    %?TRACE({acked, Ack}),
     Pending = State#state.pendingPackets,
     NewPending = gb_trees:delete_any(Ack, Pending),
     NewState = State#state{pendingPackets=NewPending},
@@ -243,7 +282,7 @@ send_message(Message, true, State) ->
                                  RelMessage#message{sentCount=SentCount+1, 
                                                     lastSent=now()},
                                  Pending),
-    %?DBG({pending_packet, RelMessage#message.sequence}),
+    %?TRACE({pending_packet, RelMessage#message.sequence}),
     update_resend_timer(NewState2#state{pendingPackets=NewPending});
 send_message(Message, false, State) ->
     {M, S} = assign_sequence(Message, State),
@@ -253,12 +292,12 @@ send_message(Message, false, State) ->
 send_message(Message, State) ->
     Spec = Message#message.spec,
     {Packet, NewState} = build_packet(Message, State),
-    ?DBG({sending, Spec#messageDef.name}),
+    ?TRACE({sending, Spec#messageDef.name}),
     send(Packet, NewState).
     
 
 send(Bin, State) ->
-    Sim = State#state.sim,
+    Sim = State#state.simInfo,
     ok = gen_udp:send(State#state.socket, 
                       Sim#sim.ip, Sim#sim.port,
                       Bin),
@@ -322,11 +361,11 @@ send_ack_packet(#state{queuedAcks=Acks}=State) ->
 
 
 update_resend_timer(#state{resendTimer=none}=State) ->
-    %?DBG(setting_resend_timer),
+    %?TRACE(setting_resend_timer),
     {ok, TRef} = timer:send_after(?RESEND_PACKET_TIMER, resend_packet_timer),
     State#state{resendTimer=TRef};
 update_resend_timer(State) -> 
-    %?DBG(resend_timer_exists),
+    %?TRACE(resend_timer_exists),
     State.
 
 
@@ -342,13 +381,13 @@ resend_expired([{_ID, #message{lastSent=LS}=M}|Rest], Now, State) ->
     TD = timer:now_diff(Now, LS),
     if TD >= ?RESEND_TIMER_MICROSECONDS ->
             if M#message.sentCount > ?MAX_RESENDS ->
-                    ?DBG({packet_lost, M}),
+                    ?TRACE({packet_lost, M}),
                     resend_expired(Rest, Now, State);
                true ->
                     NewMessage = M#message{lastSent=now(), 
                                            sentCount=M#message.sentCount,
                                            resend=true},
-                    %?DBG({resending, NewMessage}),
+                    %?TRACE({resending, NewMessage}),
                     NewState = send_message(NewMessage, true, State),
                     resend_expired(Rest, Now, NewState)
             end;
@@ -382,18 +421,18 @@ send_ping(State) ->
 %% Dispatch
 %%====================================================================
 
-dispatch_message(#messageDef{name='PacketAck'}, Message, State) ->
+dispatch_message('PacketAck', Message, State) ->
     [{_, Groups}] = Message#message.message,
     IDs = [ID || [{_, ID}] <- Groups],
     process_acks(IDs, State);
 
-dispatch_message(#messageDef{name='StartPingCheck'}, Message, State) ->
+dispatch_message('StartPingCheck', Message, State) ->
     [{_,[{_,PingID},{_, OldestUnacked}]}] = Message#message.message,
     Reply = slerl_message:build_message('CompletePingCheck', [[PingID]]),
     NewState = send_message(Reply, false, State),
     remove_old_acks(OldestUnacked, NewState);
 
-dispatch_message(#messageDef{name='CompletePingCheck'}, Message, State) ->
+dispatch_message('CompletePingCheck', Message, State) ->
     [{_, [{_, PingID}]}] = Message#message.message,
     {SentTime, NewPending} = find_ping(PingID, State#state.pendingPings),
 
@@ -404,10 +443,18 @@ dispatch_message(#messageDef{name='CompletePingCheck'}, Message, State) ->
                         Diff = timer:now_diff(now(), SentTime),
                         trim_pings([Diff|State#state.pingWindow], [], ?PING_WINDOW)
                 end,
-    ?DBG({average_ping, lists:sum(NewWindow) / (length(NewWindow)*1000)}),
+    ?TRACE({average_ping, lists:sum(NewWindow) / (length(NewWindow)*1000)}),
     State#state{pendingPings=NewPending, pingWindow=NewWindow};
 
-dispatch_message(_Spec, _Message, State) ->
+dispatch_message(Name, Message, State) ->
+    case dict:find(Name, State#state.subscriptions) of
+        error -> ok;
+        {ok, Ps} -> 
+            Sim = State#state.simInfo,
+            Self = {self(), Sim#sim.ip, Sim#sim.port},
+            Msg = {message, Name, Message, Self},
+            [P ! Msg || P <- Ps]
+    end,
     State.
 
 
@@ -429,54 +476,3 @@ trim_pings(_, Buff, Count) when Count == 0 -> lists:reverse(Buff);
 trim_pings([P|Rest], Buff, Count) -> trim_pings(Rest, [P|Buff], Count-1).
     
                     
-%%====================================================================
-%% Connect
-%%====================================================================
-
-
-send_connect_packets(State) ->
-    State1 = use_circuit_code(State),
-    State2 = complete_agent_movement(State1),
-    %State3 = agent_update(State2),
-    %State4 = ping(State3),
-    State2.
-
-use_circuit_code(State) ->    
-    Sim = State#state.sim,
-    Code = Sim#sim.circuitCode,
-
-    Message = slerl_message:build_message(
-                'UseCircuitCode',
-                [ [Code, Sim#sim.sessionID, Sim#sim.agentID] ]),
-
-    send_message(Message, true, State).
-    
-
-complete_agent_movement(State) ->
-    Sim = State#state.sim,
-    Code = Sim#sim.circuitCode,
-
-    Message = slerl_message:build_message(
-                'CompleteAgentMovement',
-                [ [Sim#sim.agentID, Sim#sim.sessionID, Code ] ]),
-    
-    send_message(Message, true, State).
-
-
-agent_update(State) ->
-    Sim = State#state.sim,
-
-    Message = slerl_message:build_message(
-                'AgentUpdate',
-                [ [Sim#sim.agentID, Sim#sim.sessionID,
-                   {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-                   0,
-                   {9.388699710976274e-44, 9.388699710976274e-44, 5.748826949892562e-41},
-                   {46171676672.0, -1.6316734868642859e-24, 0.0},
-                   {-2.4897361554936003e-29, 180356064.0, 0.0},
-                   {0.0, 1.793662034335766e-43, -1.658270695400354e35},
-                   9.388699710976274e-44,
-                   0, 0
-                  ] ]),
-    
-    send_message(Message, true, State).

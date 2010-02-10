@@ -7,12 +7,14 @@
 %%%-------------------------------------------------------------------
 -module(slerl_util).
 
+-include("slerl_util.hrl").
+
 -export([macaddr/0, macaddr/1, 
          md5_hex/1,
-         parse_uuid/1, parse_ip/1]).
+         parse_uuid/1, parse_ip/1,
+         get_field/2,
+         extract_string/1]).
 
-
--define(DBG(T), io:format("~p ~p~n", [self(), T])).
 
 
 macaddr() -> macaddr("eth0").
@@ -48,3 +50,14 @@ parse_uuid(S) ->
 parse_ip(S) ->
     list_to_tuple(lists:map(fun list_to_integer/1, string:tokens(S, "."))).
 
+
+
+get_field([], Message) -> Message;
+get_field([K|Rest], Message) -> get_field(Rest, ?GV(K, Message)).
+
+
+
+
+extract_string(Bin) ->
+    {String, _} = split_binary(Bin, byte_size(Bin)-1),
+    binary_to_list(String).

@@ -52,7 +52,7 @@
 
 test() ->
     slerl_message:parse_message_template(),
-    %slerl_sim:parse_packet(hd(?MSGS), none).
-    %[slerl_sim:parse_packet(M, none) || M <- ?MSGS].
+    %slerl_sim_conn:parse_packet(hd(?MSGS), none).
+    %[slerl_sim_conn:parse_packet(M, none) || M <- ?MSGS].
     ?DBG(slerl_message:build_message('StartPingCheck', [[0, 0]])),
     ?DBG(slerl_message:build_message('PacketAck', [[ [1],[2],[3] ]])).

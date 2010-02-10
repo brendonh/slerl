@@ -10,7 +10,7 @@
 -include("slerl.hrl").
 -include("slerl_util.hrl").
 
--export([login/3, login/4]).
+-export([login/3, login/4, start_bot/2]).
 
 
 login(First, Last, Password) -> login(First, Last, Password, "last").
@@ -23,36 +23,20 @@ login(First, Last, Password, Start) ->
     Response = slerl_login:login(URL, First, Last, Password, Version, Start),
     case Response of
         {ok, Info} -> 
-            ?DBG(xmlrpc_login_succeeded),
-            start_bot(Info);
+            Name = list_to_atom(lists:flatten([First, $\s, Last])),
+            ?DBG({xmlrpc_login_succeeded, Name}),
+            %{Name, Info};
+            start_bot(Name, Info);
         Other -> Other
     end.
 
 
 
-start_bot(Info) ->
-    {ok, Pid} = supervisor:start_child(slerl_sup, [Info]),
+start_bot(Name, Info) ->   
+    slerl_sup:start_bot(Name, Info),
+    gen_server:cast(Name, initial_connect),
+    {ok, Name}.
+    %?DBG({procs, ets:tab2list(Name)}),
+    %,
+    %{ok, Name}.
 
-    I = fun(K) -> ?GV(K, Info) end,
-
-    AgentID = slerl_util:parse_uuid(?GV("agent_id", Info)),
-    SessionID = slerl_util:parse_uuid(?GV("session_id", Info)),
-
-    Sim = #sim{
-      ip=slerl_util:parse_ip(I("sim_ip")), 
-      port=list_to_integer(I("sim_port")),
-      circuitCode=list_to_integer(I("circuit_code")),
-      regionPos={I("region_x"), I("region_y")},
-      seedCapability=I("seed_capability"),
-      agentID=AgentID,
-      sessionID=SessionID}, 
-    
-    ?DBG({connecting_to_sim, Sim#sim.ip, Sim#sim.port}),
-    
-    [SimSup] = [P || {Id, P, _, _} <- supervisor:which_children(Pid), 
-                     Id == sims],
-
-    {ok, SimPid} = supervisor:start_child(SimSup, [Sim]),
-    slerl_sim:start_connect(SimPid),
-
-    ok.

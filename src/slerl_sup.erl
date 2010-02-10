@@ -9,8 +9,11 @@
 
 -behaviour(supervisor).
 
+-include("slerl.hrl").
+-include("slerl_util.hrl").
+
 %% API
--export([start_link/1]).
+-export([start_link/1, start_bot/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -23,6 +26,10 @@
 
 start_link(StartArgs) ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, StartArgs).
+
+start_bot(Name, Info) ->
+     supervisor:start_child(?SERVER, [Name, Info]),
+     {ok, whereis(Name)}.
 
 
 %%====================================================================

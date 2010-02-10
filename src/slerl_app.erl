@@ -9,6 +9,7 @@
 
 -behaviour(application).
 
+-include("slerl.hrl").
 -include("slerl_util.hrl").
 
 
@@ -33,7 +34,8 @@ launch() ->
     Last = ?GV(last, Bits),
     Password = ?GV(pass, Bits),
     case slerl:login(First, Last, Password) of
-        ok -> ok;
+        {ok, _Name} -> 
+            ok;
         Other ->
             ?DBG({oh_noes, Other}),
             init:stop()

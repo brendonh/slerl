@@ -79,7 +79,7 @@ handle_cast(initial_connect, State) ->
 
     {noreply, State};
 
-handle_cast({{simulator, region_changed, Sim}, {Message, SimInfo}}, State) ->
+handle_cast({{simulator, region_changed, Sim}, {_Message, SimInfo}}, State) ->
     ?DBG({region_changed, SimInfo#sim.name}),
     {noreply, State#state{currentSim=Sim, simInfo=SimInfo}};
 
@@ -153,4 +153,3 @@ region_getter(Name, From, State) ->
     after 10000 ->
         fail
     end.
-            

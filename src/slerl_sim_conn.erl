@@ -341,8 +341,6 @@ make_flags(Bits) ->
 
 ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)
   when BS == ?MTU orelse Count == 255 orelse Acks == [] ->
-    % Wrong, I think. Count should be at the end. Can't test it until
-    % we're actually sending packets out regularly.
     {lists:reverse([<<Count:1/integer-unit:8>>|Bits]), State};
 ack_suffix(BS, Count, Bits, #state{queuedAcks=[Ack|Rest]}=State) ->
     ack_suffix(BS+4, Count+1, [<<Ack:1/integer-unit:32>>|Bits], State#state{queuedAcks=Rest}).
@@ -456,7 +454,7 @@ dispatch_message('CompletePingCheck', Message, State) ->
     ?TRACE({average_ping, lists:sum(NewWindow) / (length(NewWindow)*1000)}),
     State#state{pendingPings=NewPending, pingWindow=NewWindow};
 
-dispatch_message('RegionHandshake', #message{message=Message}, State) ->
+dispatch_message('RegionHandshake', #message{message=Message}=Orig, State) ->
     SimName = slerl_util:extract_string(
                 slerl_util:get_field(['RegionInfo', 'SimName'], Message)),
 
@@ -471,7 +469,8 @@ dispatch_message('RegionHandshake', #message{message=Message}, State) ->
               [[NewInfo#sim.agentID, NewInfo#sim.sessionID],
                [0]]),
 
-    send_message(Reply, true, NewState);
+    NewState2 = send_message(Reply, true, NewState),
+    broadcast_message('RegionHandshake', Orig, NewState2);
 
 dispatch_message(Name, Message, State) ->
     broadcast_message(Name, Message, State).

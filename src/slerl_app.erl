@@ -33,7 +33,7 @@ launch() ->
     First = ?GV(first, Bits),
     Last = ?GV(last, Bits),
     Password = ?GV(pass, Bits),
-    case slerl:login(First, Last, Password) of
+    case slerl:login_loop(First, Last, Password, 5) of
         {ok, _Name} -> 
             ok;
         Other ->

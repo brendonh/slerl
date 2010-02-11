@@ -21,7 +21,8 @@
 -record(state, {
   name,
   simInfo,
-  connKey
+  connKey,
+  caps=none
 }).
 
 %%====================================================================
@@ -74,6 +75,9 @@ handle_cast({send, Message, Reliable}, State) ->
     send_message(Message, Reliable, State),
     {noreply, State};
 
+handle_cast({seed_capabilities, Caps}, State) ->
+    {noreply, State#state{caps=dict:from_list(Caps)}};
+
 handle_cast(logout, State) ->
     logout(State),
     {noreply, State};
@@ -88,6 +92,10 @@ handle_info({message, 'AgentMovementComplete', Message, Conn}, State) ->
 
 handle_info({message, 'LogoutReply', Message, Conn}, State) ->
     logged_out(Message, Conn, State);
+
+handle_info({message, 'RegionHandshake', _Message, _Conn}, State) ->
+    request_seed_caps(State),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -118,6 +126,21 @@ subscribe(MessageName, State) ->
     gen_server:cast(get_conn(State), {subscribe, MessageName, self()}).
 
 
+bot_cast(Message, State) ->
+    Bot = ets:lookup_element(State#state.name, bot, 2),
+    gen_server:cast(Bot, Message).
+
+
+request_seed_caps(State) ->
+    SimInfo = State#state.simInfo,
+    URL = SimInfo#sim.seedCapability,
+    Self = self(),
+    spawn(fun() -> 
+       case slerl_caps:request_seed_caps(URL) of
+           {ok, Caps} -> gen_server:cast(Self, {seed_capabilities, Caps});
+           _ -> ok
+       end
+          end).
 
 
 %%====================================================================
@@ -125,6 +148,7 @@ subscribe(MessageName, State) ->
 %%====================================================================
 
 send_connect_packets(State) ->
+    subscribe('RegionHandshake', State),
     subscribe('AgentMovementComplete', State),
     subscribe('LogoutReply', State),
     use_circuit_code(State),
@@ -166,11 +190,6 @@ close_circuit(State) ->
     Message = slerl_message:build_message('CloseCircuit', []),
     % Should this *really* be reliable? It is in libOMV
     send_message(Message, true, State).
-
-
-bot_cast(Message, State) ->
-    Bot = ets:lookup_element(State#state.name, bot, 2),
-    gen_server:cast(Bot, Message).
     
 
 %%====================================================================
@@ -184,3 +203,5 @@ agent_movement_complete(Message, {_Conn, SimInfo}, State) ->
 logged_out(Message, {_Conn, SimInfo}, State) ->
     bot_cast({{simulator, logged_out, self()}, {Message, SimInfo}}, State),
     {noreply, State}.
+
+

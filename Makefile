@@ -30,7 +30,7 @@ run: run_prereqs
 	$(ERL_CMD) -s ${PKG_NAME}_app launch
 
 test: run_prereqs
-	$(ERL_CMD) -noshell -s slerl_sandbox test -s init stop
+	$(ERL_CMD) -noshell -s slerl_llsd test -s init stop
 
 parser: 
 	erl -noshell -eval 'yecc:yecc("priv/messages.yrl", "src/slerl_message_template_parser.erl").' -s init stop

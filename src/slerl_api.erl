@@ -22,4 +22,3 @@ get_region(Name) when is_binary(Name) ->
 
 trace(Trace) -> gen_server:cast(Bot, {trace, Trace}).
     
-

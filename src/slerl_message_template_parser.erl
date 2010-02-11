@@ -757,7 +757,7 @@ yeccpars2_38_(__Stack0) ->
 yeccpars2_39_(__Stack0) ->
  [__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   { __2 , __3 }
+   { list_to_atom ( __2 ) , __3 }
   end | __Stack].
 
 -compile({inline,{yeccpars2_40_,1}}).
@@ -765,7 +765,7 @@ yeccpars2_39_(__Stack0) ->
 yeccpars2_40_(__Stack0) ->
  [__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   { __2 , { __3 , __4 } }
+   { list_to_atom ( __2 ) , { __3 , __4 } }
   end | __Stack].
 
 -compile({inline,{yeccpars2_41_,1}}).
@@ -781,7 +781,7 @@ yeccpars2_41_(__Stack0) ->
 yeccpars2_42_(__Stack0) ->
  [__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   # blockDef { name = __2 , quantity = __3 , repeats = 1 , parameters = __4 }
+   # blockDef { name = list_to_atom ( __2 ) , quantity = __3 , repeats = 1 , parameters = __4 }
   end | __Stack].
 
 -compile({inline,{yeccpars2_44_,1}}).
@@ -789,7 +789,7 @@ yeccpars2_42_(__Stack0) ->
 yeccpars2_44_(__Stack0) ->
  [__6,__5,__4,__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   # blockDef { name = __2 , quantity = __3 , repeats = __4 , parameters = __5 }
+   # blockDef { name = list_to_atom ( __2 ) , quantity = __3 , repeats = __4 , parameters = __5 }
   end | __Stack].
 
 -compile({inline,{yeccpars2_45_,1}}).

@@ -53,6 +53,14 @@ init([Name, SimInfo]) ->
 
 %% --------------------------------------------
 
+handle_call({subscribe, MessageName}, {Pid, _}, State) -> 
+    gen_server:cast(get_conn(State), {subscribe, MessageName, Pid}),
+    {reply, ok, State};
+
+handle_call({unsubscribe, MessageName}, {Pid, _}, State) -> 
+    gen_server:cast(get_conn(State), {unsubscribe, MessageName, Pid}),
+    {reply, ok, State};
+
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
@@ -60,6 +68,10 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast(start_connect, State) ->
     send_connect_packets(State),
+    {noreply, State};
+
+handle_cast({send, Message, Reliable}, State) ->
+    send_message(Message, Reliable, State),
     {noreply, State};
 
 handle_cast(logout, State) ->

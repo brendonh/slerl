@@ -25,7 +25,8 @@
   name,
   info,
   sup,
-  currentSim
+  currentSim=none,
+  simInfo=none
 }).
 
 %%====================================================================
@@ -43,12 +44,16 @@ logout(Bot) ->
 %%====================================================================
 
 init([Name, Info, Sup]) ->
-    process_flag(trap_exit, true),
     ets:new(Name, [set, public, named_table]),
     ets:insert(Name, {bot, self()}),
-    {ok, #state{name=Name, info=Info, sup=Sup, currentSim=none}}.
+    {ok, #state{name=Name, info=Info, sup=Sup}}.
 
-   
+
+
+handle_call({get_region, Name}, From, State) ->   
+    spawn(fun() -> region_getter(Name, From, State) end),
+    {noreply, State};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -75,9 +80,8 @@ handle_cast(initial_connect, State) ->
     {noreply, State};
 
 handle_cast({{simulator, region_changed, Sim}, {Message, SimInfo}}, State) ->
-    ?DBG({region_changed, SimInfo#sim.name, SimInfo#sim.regionID, 
-          slerl_util:get_field(["Data", "Position"], Message#message.message)}),
-    {noreply, State#state{currentSim=Sim}};
+    ?DBG({region_changed, SimInfo#sim.name}),
+    {noreply, State#state{currentSim=Sim, simInfo=SimInfo}};
 
 handle_cast({{simulator, logged_out, _Sim}, {_Message, _SimInfo}}, State) ->
     ?DBG(logged_out),
@@ -86,6 +90,11 @@ handle_cast({{simulator, logged_out, _Sim}, {_Message, _SimInfo}}, State) ->
 
 handle_cast(logout, State) ->
     do_logout(State),
+    {noreply, State};
+
+handle_cast({trace, Trace}, State) when is_boolean(Trace) ->
+    [gen_server:cast(C, {trace, Trace})
+     || [C] <- ets:match('Teania Amaterasu', {{'udp', '_', '_'}, '$1'})],
     {noreply, State};
 
 handle_cast(Other, State) ->
@@ -101,7 +110,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 
-terminate(Reason, State) ->
+terminate(_Reason, _State) ->
     ok.
 
 
@@ -121,3 +130,27 @@ do_logout(State) ->
             gen_server:cast(Sim, logout),
             timer:send_after(?LOGOUT_TIMEOUT, logout_timeout)
     end.
+
+
+region_getter(Name, From, State) ->
+    Sim = State#state.currentSim,
+    SimInfo = State#state.simInfo,
+    gen_server:call(Sim, {subscribe, 'MapBlockReply'}),
+    Message = slerl_message:build_message(
+                'MapNameRequest', [ [SimInfo#sim.agentID, SimInfo#sim.sessionID, 0, 0, false],
+                                    [Name] ]),
+    gen_server:cast(Sim, {send, Message, true}),
+    receive
+        {message, 'MapBlockReply', Response, _Conn} ->
+            Reply = case [B || B <- ?GV('Data', Response#message.message),
+                               ?GV('Name', B) == Name] of
+                        [Block] -> {ok, Block};
+                        [] -> {error, not_found};
+                        Other -> {error, {multiple_results, Other}}
+                    end,
+            gen_server:reply(From, Reply);
+        _ -> ignore
+    after 10000 ->
+        fail
+    end.
+            

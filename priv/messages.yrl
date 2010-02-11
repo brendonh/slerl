@@ -36,9 +36,9 @@ blocks -> block: ['$1'].
 blocks -> block blocks: ['$1'|'$2'].
 
 block -> '{' blockname quantity parameters '}' : 
-      #blockDef{name='$2', quantity='$3', repeats=1, parameters='$4'}.
+      #blockDef{name=list_to_atom('$2'), quantity='$3', repeats=1, parameters='$4'}.
 block -> '{' blockname quantity repeats parameters '}' : 
-      #blockDef{name='$2', quantity='$3', repeats='$4', parameters='$5'}.
+      #blockDef{name=list_to_atom('$2'), quantity='$3', repeats='$4', parameters='$5'}.
 
 blockname -> 'word': value_of('$1').
 quantity -> 'word': parse_quantity(value_of('$1')).
@@ -47,8 +47,8 @@ repeats -> 'word': list_to_integer(value_of('$1')).
 parameters -> parameter: ['$1'].
 parameters -> parameter parameters: ['$1'|'$2'].
 
-parameter ->  '{' parametername type '}': {'$2', '$3'}.
-parameter ->  '{' parametername type prefixlength '}': {'$2', {'$3', '$4'}}.
+parameter ->  '{' parametername type '}': {list_to_atom('$2'), '$3'}.
+parameter ->  '{' parametername type prefixlength '}': {list_to_atom('$2'), {'$3', '$4'}}.
 
 parametername -> 'word': value_of('$1').
 type -> 'word': parse_type(value_of('$1')).

@@ -19,7 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 % These values generally follow libOMV settings.
--define(MTU, 1200). 
+-define(MTU, 1200).
 -define(ACK_PACKET_TIMER, 500).
 -define(RESEND_PACKET_TIMER, 4000).
 -define(MAX_RESENDS, 2).
@@ -35,9 +35,9 @@
 
 -define(CLEAN_SUBSCRIPTIONS_INTERVAL, 60000).
 
--define(DEBUG, false).
--define(DEBUG_IGNORE, ['PacketAck', 'ViewerEffect', 'PreloadSound', 'AttachedSound']).
--define(TRACE(T), ?DEBUG andalso ?DBG(T)).
+-define(DEBUG, false). % Puts us straight into trace mode
+%-define(DEBUG_IGNORE, ['PacketAck', 'ViewerEffect', 'PreloadSound', 'AttachedSound']).
+-define(TRACE(T), if State#state.trace -> ?DBG(T); true -> ok end).
 
 -record(state, {
   name,
@@ -55,8 +55,9 @@
   pendingPings,
   pingWindow,
 
-  subscriptions
+  subscriptions,
 
+  trace
 }).
 
 
@@ -65,12 +66,12 @@
 %%====================================================================
 
 start_link(Name, SimInfo) ->
-    gen_server:start_link(?MODULE, [Name, SimInfo], []). 
+    gen_server:start_link(?MODULE, [Name, SimInfo], []).
 
 
 start_connect(Pid) ->
     gen_server:cast(Pid, start_connect).
-   
+
 
 %%====================================================================
 %% gen_server callbacks
@@ -79,7 +80,6 @@ start_connect(Pid) ->
 init([Name, SimInfo]) ->
 
     process_flag(trap_exit, true),
-    ?DBG({conn, self()}),
 
     {ok, Socket} = gen_udp:open(?PORT, ?SOCKET_OPTIONS),
 
@@ -94,7 +94,8 @@ init([Name, SimInfo]) ->
                    pendingPings=[],
                    pingID=1,
                    pingWindow=[],
-                   subscriptions=dict:new()
+                   subscriptions=dict:new(),
+                   trace=?DEBUG
                   },
 
     ets:insert(Name, {{udp, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
@@ -105,6 +106,7 @@ init([Name, SimInfo]) ->
     {ok, State}.
 
 
+
 handle_call(get_ping, _From, State) ->
     Window = State#state.pingWindow,
     Reply = lists:sum(Window) / (length(Window)*1000),
@@ -113,11 +115,11 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({subscribe, MessageName, Proc}, State) -> 
+handle_cast({subscribe, MessageName, Proc}, State) ->
     NewSubs = dict:append(MessageName, Proc, State#state.subscriptions),
     {noreply, State#state{subscriptions=NewSubs}};
 
-handle_cast({unsubscribe, MessageName, Proc}, State) -> 
+handle_cast({unsubscribe, MessageName, Proc}, State) ->
     Subs = State#state.subscriptions,
     NewSubs = case dict:find(MessageName, Subs) of
                   error -> Subs;
@@ -129,6 +131,9 @@ handle_cast({unsubscribe, MessageName, Proc}, State) ->
 
 handle_cast({send, Message, Reliable}, State) ->
     {noreply, send_message(Message, Reliable, State)};
+
+handle_cast({trace, Trace}, State) when is_boolean(Trace) ->
+    {noreply, State#state{trace=Trace}};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -153,7 +158,7 @@ handle_info(clean_subscriptions_timer, State) ->
 handle_info(ping_timer, State) ->
     {noreply, send_ping(State)};
 
-handle_info({udp, Socket, IP, Port, Packet}, 
+handle_info({udp, Socket, IP, Port, Packet},
             #state{socket=Socket, simInfo=#sim{ip=IP, port=Port}}=State) ->
     NewState = handle_packet(Packet, State),
     {noreply, NewState};
@@ -179,7 +184,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%--------------------------------------------------------------------
 %%% Receiving
-%%--------------------------------------------------------------------  
+%%--------------------------------------------------------------------
 
 bool(1) -> true;
 bool(0) -> false.
@@ -187,17 +192,10 @@ bool(0) -> false.
 
 handle_packet(Packet, State) ->
     try parse_packet(Packet, State) of
-        {Message, Acks} -> 
+        {Message, Acks} ->
             Spec = Message#message.spec,
             NewState = process_acks(Acks, State),
-
-            case ?DEBUG of true ->
-                    case lists:member(Spec#messageDef.name, ?DEBUG_IGNORE) of true -> ok;
-                        false -> ?TRACE({got, Message#message.sequence, Spec#messageDef.name})
-                    end;
-                _ -> ok
-            end,
-            
+            ?TRACE({got, Message#message.sequence, Spec#messageDef.name}),
             handle_message(Message, NewState)
     catch Type:Error ->
                         ?TRACE({error, Type, Error}),
@@ -207,7 +205,7 @@ handle_packet(Packet, State) ->
 
 handle_message(Message, State) ->
     NewState = case Message#message.reliable of
-        true -> 
+        true ->
             Acks = State#state.queuedAcks,
             NewAcks = [Message#message.sequence|Acks],
             update_ack_timer(State#state{queuedAcks=NewAcks});
@@ -224,15 +222,15 @@ parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
                 Sequence:4/integer-unit:8, ExtraHeader:1/integer-unit:8,
                 Rest/binary>>, _State) ->
     {MessageBlock, AckBlock} = split_packet(bool(HasAcks), Rest),
-    
+
     Acks = parse_acks(AckBlock, []),
 
     Skeleton  = #message{
-      zerocoded=bool(Zeroed), 
-      reliable=bool(Reliable), 
+      zerocoded=bool(Zeroed),
+      reliable=bool(Reliable),
       resend=bool(Resent),
       sequence=Sequence},
-    
+
     Message =  parse_message(ExtraHeader, MessageBlock, Skeleton),
     {Message, Acks}.
 
@@ -245,7 +243,7 @@ split_packet(true, Packet) ->
     <<Tail:BS/binary, AckCount:1/integer-unit:8>> = Packet,
     split_binary(Tail, BS - (AckCount * 4)).
 
-    
+
 parse_message(0, Rest, Message) ->
     slerl_message:parse_message(Rest, Message);
 parse_message(Count, Packet, Message) ->
@@ -259,10 +257,10 @@ parse_acks(<<X:1/integer-unit:32, Rest/binary>>, Buff) ->
 parse_acks(_Other, _) -> []. % Screw it.
 
 
-process_acks([], State) -> 
+process_acks([], State) ->
     State;
 process_acks([Ack|Rest], State) ->
-    %?TRACE({acked, Ack}),
+    ?TRACE({acked, Ack}),
     Pending = State#state.pendingPackets,
     NewPending = gb_trees:delete_any(Ack, Pending),
     NewState = State#state{pendingPackets=NewPending},
@@ -288,13 +286,13 @@ assign_sequence(Message, State) ->
 send_message(Message, true, State) ->
     {RelMessage, NewState} = assign_sequence(reliable(Message), State),
     NewState2 = send_message(RelMessage, NewState),
-    Pending = NewState2#state.pendingPackets,    
+    Pending = NewState2#state.pendingPackets,
     SentCount = RelMessage#message.sentCount,
-    NewPending = gb_trees:insert(RelMessage#message.sequence, 
-                                 RelMessage#message{sentCount=SentCount+1, 
+    NewPending = gb_trees:insert(RelMessage#message.sequence,
+                                 RelMessage#message{sentCount=SentCount+1,
                                                     lastSent=now()},
                                  Pending),
-    %?TRACE({pending_packet, RelMessage#message.sequence}),
+    ?TRACE({pending_packet, RelMessage#message.sequence}),
     update_resend_timer(NewState2#state{pendingPackets=NewPending});
 send_message(Message, false, State) ->
     {M, S} = assign_sequence(Message, State),
@@ -306,11 +304,11 @@ send_message(Message, State) ->
     {Packet, NewState} = build_packet(Message, State),
     ?TRACE({sending, Spec#messageDef.name}),
     send(Packet, NewState).
-    
+
 
 send(Bin, State) ->
     Sim = State#state.simInfo,
-    ok = gen_udp:send(State#state.socket, 
+    ok = gen_udp:send(State#state.socket,
                       Sim#sim.ip, Sim#sim.port,
                       Bin),
     update_ack_timer(State).
@@ -326,7 +324,7 @@ build_packet(Message, State) ->
     Flags = make_flags([Spec#messageDef.zerocoded,
                         Message#message.reliable,
                         Message#message.resend,
-                        AckSuffix /= []]),    
+                        AckSuffix /= []]),
 
     Header = [Flags, <<Seq:4/integer-unit:8, 0:1/integer-unit:8>>],
     Packet = list_to_binary([Header,Message#message.message,AckSuffix]),
@@ -341,14 +339,14 @@ make_flags(Bits) ->
      0:4/integer-unit:1>>.
 
 
-ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State) 
+ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)
   when BS == ?MTU orelse Count == 255 orelse Acks == [] ->
     % Wrong, I think. Count should be at the end. Can't test it until
     % we're actually sending packets out regularly.
     {lists:reverse([<<Count:1/integer-unit:8>>|Bits]), State};
 ack_suffix(BS, Count, Bits, #state{queuedAcks=[Ack|Rest]}=State) ->
     ack_suffix(BS+4, Count+1, [<<Ack:1/integer-unit:32>>|Bits], State#state{queuedAcks=Rest}).
- 
+
 
 %%====================================================================
 %% Timers
@@ -369,21 +367,21 @@ send_ack_packet(#state{queuedAcks=Acks}=State) ->
     AckGroups = [ [A] || A <- lists:reverse(Acks) ],
     Message = slerl_message:build_message('PacketAck', [AckGroups]),
     send_message(Message, true, State#state{queuedAcks=[]}).
-     
+
 
 
 update_resend_timer(#state{resendTimer=none}=State) ->
-    %?TRACE(setting_resend_timer),
+    ?TRACE(setting_resend_timer),
     {ok, TRef} = timer:send_after(?RESEND_PACKET_TIMER, resend_packet_timer),
     State#state{resendTimer=TRef};
-update_resend_timer(State) -> 
-    %?TRACE(resend_timer_exists),
+update_resend_timer(State) ->
+    ?TRACE(resend_timer_exists),
     State.
 
 
 resend_packets(#state{pendingPackets=Pending}=State) ->
     Now = now(),
-    resend_expired(gb_trees:to_list(Pending), Now, 
+    resend_expired(gb_trees:to_list(Pending), Now,
                    State#state{pendingPackets=gb_trees:empty()}).
 
 
@@ -396,14 +394,14 @@ resend_expired([{_ID, #message{lastSent=LS}=M}|Rest], Now, State) ->
                     ?TRACE({packet_lost, M}),
                     resend_expired(Rest, Now, State);
                true ->
-                    NewMessage = M#message{lastSent=now(), 
+                    NewMessage = M#message{lastSent=now(),
                                            sentCount=M#message.sentCount,
                                            resend=true},
-                    %?TRACE({resending, NewMessage}),
+                    ?TRACE({resending, NewMessage}),
                     NewState = send_message(NewMessage, true, State),
                     resend_expired(Rest, Now, NewState)
             end;
-       true -> 
+       true ->
             Pending = State#state.pendingPackets,
             NewPending = gb_trees:insert(M#message.sequence, M, Pending),
             NewState = State#state{pendingPackets=NewPending},
@@ -413,7 +411,7 @@ resend_expired([{_ID, #message{lastSent=LS}=M}|Rest], Now, State) ->
 
 send_ping(State) ->
     PingID = State#state.pingID,
-    Unacked = gb_trees:keys(State#state.pendingPackets),    
+    Unacked = gb_trees:keys(State#state.pendingPackets),
     OldestUnacked = case Unacked of
                         [] -> 0;
                         _ -> lists:min(Unacked)
@@ -421,10 +419,10 @@ send_ping(State) ->
 
     Message = slerl_message:build_message(
                 'StartPingCheck', [[PingID, OldestUnacked]]),
-    
+
     NewState = send_message(Message, false, State),
     NewState#state{
-      pendingPings=[{PingID, now()}|NewState#state.pendingPings], 
+      pendingPings=[{PingID, now()}|NewState#state.pendingPings],
       pingID=PingID+1
      }.
 
@@ -449,9 +447,9 @@ dispatch_message('CompletePingCheck', Message, State) ->
     {SentTime, NewPending} = find_ping(PingID, State#state.pendingPings),
 
     NewWindow = case SentTime of
-                    none -> 
+                    none ->
                         State#state.pingWindow;
-                    _ -> 
+                    _ ->
                         Diff = timer:now_diff(now(), SentTime),
                         trim_pings([Diff|State#state.pingWindow], [], ?PING_WINDOW)
                 end,
@@ -460,17 +458,17 @@ dispatch_message('CompletePingCheck', Message, State) ->
 
 dispatch_message('RegionHandshake', #message{message=Message}, State) ->
     SimName = slerl_util:extract_string(
-                slerl_util:get_field(["RegionInfo", "SimName"], Message)),
+                slerl_util:get_field(['RegionInfo', 'SimName'], Message)),
 
-    RegionID = slerl_util:get_field(["RegionInfo2", "RegionID"], Message),
-    
+    RegionID = slerl_util:get_field(['RegionInfo2', 'RegionID'], Message),
+
     SimInfo = State#state.simInfo,
     NewInfo = SimInfo#sim{name=SimName, regionID=RegionID},
     NewState = State#state{simInfo=NewInfo},
 
     Reply = slerl_message:build_message(
-              'RegionHandshakeReply', 
-              [[NewInfo#sim.agentID, NewInfo#sim.sessionID], 
+              'RegionHandshakeReply',
+              [[NewInfo#sim.agentID, NewInfo#sim.sessionID],
                [0]]),
 
     send_message(Reply, true, NewState);
@@ -482,7 +480,7 @@ dispatch_message(Name, Message, State) ->
 broadcast_message(Name, Message, State) ->
     case dict:find(Name, State#state.subscriptions) of
         error -> ok;
-        {ok, Ps} -> 
+        {ok, Ps} ->
             Self = {self(), State#state.simInfo},
             Msg = {message, Name, Message, Self},
             [P ! Msg || P <- Ps]
@@ -506,5 +504,5 @@ find_ping(PingID, [Other|Rest], Buff, Orig) -> find_ping(PingID, Rest, [Other|Bu
 trim_pings([], Buff, _) -> lists:reverse(Buff);
 trim_pings(_, Buff, Count) when Count == 0 -> lists:reverse(Buff);
 trim_pings([P|Rest], Buff, Count) -> trim_pings(Rest, [P|Buff], Count-1).
-    
-                    
+
+

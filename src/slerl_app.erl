@@ -58,7 +58,8 @@ start(_Type, StartArgs) ->
 
 prep_stop(State) ->
     ?DBG(stopping),
-    [slerl:logout(Bot) || {Bot,_,_,_} <- supervisor:which_children(slerl_sup)],
+    [B:logout() || {Bot,_,_,_} <- supervisor:which_children(slerl_sup),
+                   B <- [{slerl_api, Bot}]],
     receive after 2000 -> ok end,
     State.
 

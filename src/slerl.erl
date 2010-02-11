@@ -10,7 +10,7 @@
 -include("slerl.hrl").
 -include("slerl_util.hrl").
 
--export([login/3, login/4, logout/1]).
+-export([login/3, login/4]).
 
 
 login(First, Last, Password) -> login(First, Last, Password, "last").
@@ -30,11 +30,9 @@ login(First, Last, Password, Start) ->
     end.
 
 
-
 start_bot(Name, Info) ->   
     slerl_sup:start_bot(Name, Info),
     gen_server:cast(Name, initial_connect),
     {ok, Name}.
 
-logout(Bot) ->
-    slerl_bot:logout(Bot).
+

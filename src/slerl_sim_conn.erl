@@ -15,7 +15,7 @@
 %% API
 -export([start_link/2, start_connect/1]).
 
-%% gen_fsm callbacks
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 % These values generally follow libOMV settings.
@@ -36,6 +36,7 @@
 -define(CLEAN_SUBSCRIPTIONS_INTERVAL, 60000).
 
 -define(DEBUG, false).
+-define(DEBUG_IGNORE, ['PacketAck', 'ViewerEffect', 'PreloadSound', 'AttachedSound']).
 -define(TRACE(T), ?DEBUG andalso ?DBG(T)).
 
 -record(state, {
@@ -76,6 +77,9 @@ start_connect(Pid) ->
 %%====================================================================
 
 init([Name, SimInfo]) ->
+
+    process_flag(trap_exit, true),
+    ?DBG({conn, self()}),
 
     {ok, Socket} = gen_udp:open(?PORT, ?SOCKET_OPTIONS),
 
@@ -163,7 +167,8 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    gen_udp:close(State#state.socket),
     ok.
 
 
@@ -185,7 +190,14 @@ handle_packet(Packet, State) ->
         {Message, Acks} -> 
             Spec = Message#message.spec,
             NewState = process_acks(Acks, State),
-            ?TRACE({got, Message#message.sequence, Spec#messageDef.name}),
+
+            case ?DEBUG of true ->
+                    case lists:member(Spec#messageDef.name, ?DEBUG_IGNORE) of true -> ok;
+                        false -> ?TRACE({got, Message#message.sequence, Spec#messageDef.name})
+                    end;
+                _ -> ok
+            end,
+            
             handle_message(Message, NewState)
     catch Type:Error ->
                         ?TRACE({error, Type, Error}),
@@ -446,12 +458,32 @@ dispatch_message('CompletePingCheck', Message, State) ->
     ?TRACE({average_ping, lists:sum(NewWindow) / (length(NewWindow)*1000)}),
     State#state{pendingPings=NewPending, pingWindow=NewWindow};
 
+dispatch_message('RegionHandshake', #message{message=Message}, State) ->
+    SimName = slerl_util:extract_string(
+                slerl_util:get_field(["RegionInfo", "SimName"], Message)),
+
+    RegionID = slerl_util:get_field(["RegionInfo2", "RegionID"], Message),
+    
+    SimInfo = State#state.simInfo,
+    NewInfo = SimInfo#sim{name=SimName, regionID=RegionID},
+    NewState = State#state{simInfo=NewInfo},
+
+    Reply = slerl_message:build_message(
+              'RegionHandshakeReply', 
+              [[NewInfo#sim.agentID, NewInfo#sim.sessionID], 
+               [0]]),
+
+    send_message(Reply, true, NewState);
+
 dispatch_message(Name, Message, State) ->
+    broadcast_message(Name, Message, State).
+
+
+broadcast_message(Name, Message, State) ->
     case dict:find(Name, State#state.subscriptions) of
         error -> ok;
         {ok, Ps} -> 
-            Sim = State#state.simInfo,
-            Self = {self(), Sim#sim.ip, Sim#sim.port},
+            Self = {self(), State#state.simInfo},
             Msg = {message, Name, Message, Self},
             [P ! Msg || P <- Ps]
     end,

@@ -31,7 +31,7 @@ start_sim_group(Name, SimInfo) ->
     Self = ets:lookup_element(Name, sim_sup, 2),
     supervisor:start_child(Self, [SimInfo]),
     Sim = ets:lookup_element(Name, {sim, SimInfo#sim.ip, SimInfo#sim.port}, 2),
-    gen_fsm:send_event(Sim, start_connect).
+    gen_server:cast(Sim, start_connect).
 
 
 %%====================================================================

@@ -7,7 +7,7 @@
 %%%-------------------------------------------------------------------
 -module(slerl_sim).
 
--behaviour(gen_fsm).
+-behaviour(gen_server).
 
 -include("slerl.hrl").
 -include("slerl_util.hrl").
@@ -15,13 +15,8 @@
 %% API
 -export([start_link/2]).
 
-%% gen_fsm callbacks
--export([init/1, 
-         uninitialized/2, uninitialized/3, 
-         connecting/2, connecting/3, 
-         connected/2, connected/3,
-         handle_event/3,
-         handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
   name,
@@ -34,14 +29,16 @@
 %%====================================================================
 
 start_link(Name, SimInfo) ->
-    gen_fsm:start_link(?MODULE, [Name, SimInfo], []).
+    gen_server:start_link(?MODULE, [Name, SimInfo], []).
 
 
 %%====================================================================
-%% gen_fsm callbacks
+%% gen_server callbacks
 %%====================================================================
 
 init([Name, SimInfo]) ->
+    process_flag(trap_exit, true),
+
     ?DBG({sim_starting, SimInfo#sim.ip, SimInfo#sim.port}),
 
     State = #state{
@@ -52,67 +49,51 @@ init([Name, SimInfo]) ->
 
     ets:insert(Name, {{sim, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
 
-    {ok, uninitialized, State}.
+    {ok, State}.
 
+%% --------------------------------------------
 
+handle_call(_Msg, _From, State) ->
+    {reply, ok, State}.
 
-uninitialized(start_connect, State) ->
+%% --------------------------------------------
+
+handle_cast(start_connect, State) ->
     send_connect_packets(State),
-    {next_state, connecting, State}.
+    {noreply, State};
 
-uninitialized(_Event, _From, State) ->
-    Reply = ok,
-    {reply, Reply, uninitialized, State}.
+handle_cast(logout, State) ->
+    logout(State),
+    {noreply, State};
 
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
+%% --------------------------------------------
 
-connecting({message, 'RegionHandshake', Message, Conn}, State) ->
-    handshake_received(Message, Conn, State);
+handle_info({message, 'AgentMovementComplete', Message, Conn}, State) ->
+    agent_movement_complete(Message, Conn, State);
 
-connecting(Event, State) ->
-    ?DBG({connecting_event, Event}),
-    {next_state, connecting, State}.
+handle_info({message, 'LogoutReply', Message, Conn}, State) ->
+    logged_out(Message, Conn, State);
 
-connecting(_Event, _From, State) ->
-    {reply, ok, connecting, State}.
+handle_info(_Info, State) ->
+    {noreply, State}.
 
+%% --------------------------------------------
 
-connected(Event, State) ->
-    ?DBG({connected_event, Event}),
-    {next_state, connected, State}.
-
-connected(_Event, _From, State) ->
-    {reply, ok, connected, State}.
-
-
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
-
-handle_sync_event(_Event, _From, StateName, State) ->
-    Reply = ok,
-    {reply, Reply, StateName, State}.
-
-
-
-handle_info({message, _, _, _}=Message, StateName, State) ->
-    apply(?MODULE, StateName, [Message, State]); % Hmm.
-
-handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
-
-
-terminate(_Reason, _StateName, _State) ->
+terminate(_Reason, _State) ->
     ok.
 
 
-code_change(_OldVsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-    
+
 get_conn(#state{name=Name, connKey=ConnKey}) ->
     ets:lookup_element(Name, ConnKey, 2).
 
@@ -125,12 +106,15 @@ subscribe(MessageName, State) ->
     gen_server:cast(get_conn(State), {subscribe, MessageName, self()}).
 
 
+
+
 %%====================================================================
 %% Connect Sequence
 %%====================================================================
 
 send_connect_packets(State) ->
-    subscribe('RegionHandshake', State),
+    subscribe('AgentMovementComplete', State),
+    subscribe('LogoutReply', State),
     use_circuit_code(State),
     complete_agent_movement(State).
 
@@ -157,15 +141,34 @@ complete_agent_movement(State) ->
     send_message(Message, true, State).
 
 
+logout(State) ->
+    Sim = State#state.simInfo,
+    Message = slerl_message:build_message(
+                'LogoutRequest',
+                [ [Sim#sim.agentID, Sim#sim.sessionID] ]),
+    send_message(Message, true, State),
+    close_circuit(State).
+
+
+close_circuit(State) ->
+    Message = slerl_message:build_message('CloseCircuit', []),
+    % Should this *really* be reliable? It is in libOMV
+    send_message(Message, true, State).
+
+
+bot_cast(Message, State) ->
+    Bot = ets:lookup_element(State#state.name, bot, 2),
+    gen_server:cast(Bot, Message).
+    
+
 %%====================================================================
-%% Arrival
+%% Message forwarding
 %%====================================================================
 
-handshake_received(Message, _Conn, State) ->
-    
-    SimName = slerl_util:extract_string(
-                slerl_util:get_field(["RegionInfo", "SimName"], 
-                                     Message#message.message)),
-    
-    ?DBG({handshake, SimName}),
-    {next_state, connected, State}.
+agent_movement_complete(Message, {_Conn, SimInfo}, State) ->
+    bot_cast({{simulator, region_changed, self()}, {Message, SimInfo}}, State),
+    {noreply, State}.
+
+logged_out(Message, {_Conn, SimInfo}, State) ->
+    bot_cast({{simulator, logged_out, self()}, {Message, SimInfo}}, State),
+    {noreply, State}.

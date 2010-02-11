@@ -28,7 +28,10 @@ start_link(StartArgs) ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, StartArgs).
 
 start_bot(Name, Info) ->
-     supervisor:start_child(?SERVER, [Name, Info]),
+     supervisor:start_child(
+       ?SERVER, 
+       {Name, {slerl_bot_sup, start_link, [Name, Info]},
+        transient,20000,supervisor,[slerl_bot_sup]}),
      {ok, whereis(Name)}.
 
 
@@ -37,10 +40,7 @@ start_bot(Name, Info) ->
 %%====================================================================
 
 init(_StartArgs) ->
-    ChildSpec = {none, {slerl_bot_sup, start_link, []},
-                 transient,20000,supervisor,[slerl_bot_sup]},
-
-    {ok,{{simple_one_for_one,10,60}, [ChildSpec]}}.
+    {ok,{{one_for_one,10,60}, []}}.
 
 
 %%====================================================================

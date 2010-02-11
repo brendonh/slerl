@@ -13,11 +13,13 @@
 -include("slerl_util.hrl").
 
 %% API
--export([start_link/3]).
+-export([start_link/3, logout/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+
+-define(LOGOUT_TIMEOUT, 5000).
 
 -record(state, {
   name,
@@ -33,16 +35,20 @@
 start_link(Name, Info, Sup) ->
     gen_server:start_link({local, Name}, ?MODULE, [Name, Info, Sup], []).
 
+logout(Bot) ->
+    gen_server:cast(Bot, logout).
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 
 init([Name, Info, Sup]) ->
+    process_flag(trap_exit, true),
     ets:new(Name, [set, public, named_table]),
-    {ok, #state{name=Name, info=Info, sup=Sup}}.
+    ets:insert(Name, {bot, self()}),
+    {ok, #state{name=Name, info=Info, sup=Sup, currentSim=none}}.
 
-
+   
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -66,14 +72,36 @@ handle_cast(initial_connect, State) ->
 
     slerl_sim_sup:start_sim_group(State#state.name, SimInfo),
 
+    {noreply, State};
+
+handle_cast({{simulator, region_changed, Sim}, {Message, SimInfo}}, State) ->
+    ?DBG({region_changed, SimInfo#sim.name, SimInfo#sim.regionID, 
+          slerl_util:get_field(["Data", "Position"], Message#message.message)}),
+    {noreply, State#state{currentSim=Sim}};
+
+handle_cast({{simulator, logged_out, _Sim}, {_Message, _SimInfo}}, State) ->
+    ?DBG(logged_out),
+    exit(State#state.sup, shutdown),
+    {noreply, State};
+
+handle_cast(logout, State) ->
+    do_logout(State),
+    {noreply, State};
+
+handle_cast(Other, State) ->
+    ?DBG({unexpected_cast, Other}),
     {noreply, State}.
 
+
+handle_info(logout_timeout, State) ->
+    exit(State#state.sup, shutdown),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, _State) ->
+terminate(Reason, State) ->
     ok.
 
 
@@ -84,3 +112,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+do_logout(State) ->          
+    ?DBG(logging_out),
+    case State#state.currentSim of
+        none -> exit(State#state.sup, shutdown);
+        Sim -> 
+            gen_server:cast(Sim, logout),
+            timer:send_after(?LOGOUT_TIMEOUT, logout_timeout)
+    end.

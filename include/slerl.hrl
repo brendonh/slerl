@@ -16,7 +16,10 @@
   regionPos,
   seedCapability,
   agentID,
-  sessionID
+  sessionID,
+
+  name,
+  regionID
 }).
 
 

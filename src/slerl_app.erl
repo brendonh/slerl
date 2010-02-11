@@ -17,7 +17,7 @@
 -export([launch/0]).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, prep_stop/1]).
 
 
 
@@ -55,6 +55,12 @@ start(_Type, StartArgs) ->
         Error ->
             Error
     end.
+
+prep_stop(State) ->
+    ?DBG(stopping),
+    [slerl:logout(Bot) || {Bot,_,_,_} <- supervisor:which_children(slerl_sup)],
+    receive after 2000 -> ok end,
+    State.
 
 stop(_State) ->
     ok.

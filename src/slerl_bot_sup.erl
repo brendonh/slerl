@@ -28,17 +28,12 @@ start_link(Name, Info) ->
     supervisor:start_link(?MODULE, [Name, Info]).
     
 
-
-%sim_connect(Name, SimInfo) ->
-%    ?DBG({starting_sim_connection, SimInfo#sim.ip, SimInfo#sim.port}),
-%    slerl_sim_sup:start_sim_group(Bot, SimInfo).
-
-
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
 
 init([Name, Info]) ->
+    process_flag(trap_exit, true),
     Bot = {bot, {slerl_bot, start_link, [Name, Info, self()]},
                permanent,2000,worker,[slerl_bot]},
     Sims = {sims, {slerl_sim_sup, start_link, [Name]},

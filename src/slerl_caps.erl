@@ -25,7 +25,6 @@ request_seed_caps(URL) ->
     slerl_caps:post(URL, Content).
 
 
-
 post(Cap, Content) ->
     XML = slerl_llsd:encode_xml(Content),
     Request = {Cap, ?HTTP_HEADERS, "application/llsd+xml", XML},

@@ -21,8 +21,7 @@
 -record(state, {
   name,
   simInfo,
-  connKey,
-  caps=none
+  connKey
 }).
 
 %%====================================================================
@@ -75,8 +74,16 @@ handle_cast({send, Message, Reliable}, State) ->
     send_message(Message, Reliable, State),
     {noreply, State};
 
-handle_cast({seed_capabilities, Caps}, State) ->
-    {noreply, State#state{caps=dict:from_list(Caps)}};
+handle_cast({seed_capabilities, CapsList}, State) ->
+    Caps = dict:from_list(CapsList),
+    NewInfo = (State#state.simInfo)#sim{caps=Caps},
+
+    case dict:find('EventQueueGet', Caps) of
+        error ->  ?DBG(no_event_queue);
+        {ok, _} -> slerl_sim_group_sup:start_event_queue(State#state.name, NewInfo)
+    end,
+
+    {noreply, State#state{simInfo=NewInfo}};
 
 handle_cast(logout, State) ->
     logout(State),
@@ -196,12 +203,12 @@ close_circuit(State) ->
 %% Message forwarding
 %%====================================================================
 
-agent_movement_complete(Message, {_Conn, SimInfo}, State) ->
-    bot_cast({{simulator, region_changed, self()}, {Message, SimInfo}}, State),
+agent_movement_complete(_Message, {_Conn, SimInfo}, State) ->
+    bot_cast({simulator, region_changed, SimInfo}, State),
     {noreply, State}.
 
-logged_out(Message, {_Conn, SimInfo}, State) ->
-    bot_cast({{simulator, logged_out, self()}, {Message, SimInfo}}, State),
+logged_out(_Message, {_Conn, SimInfo}, State) ->
+    bot_cast({simulator, logged_out, SimInfo}, State),
     {noreply, State}.
 
 

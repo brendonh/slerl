@@ -340,7 +340,7 @@ make_flags(Bits) ->
 
 
 ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)
-  when BS == ?MTU orelse Count == 255 orelse Acks == [] ->
+  when BS >= ?MTU orelse Count == 255 orelse Acks == [] ->
     {lists:reverse([<<Count:1/integer-unit:8>>|Bits]), State};
 ack_suffix(BS, Count, Bits, #state{queuedAcks=[Ack|Rest]}=State) ->
     ack_suffix(BS+4, Count+1, [<<Ack:1/integer-unit:32>>|Bits], State#state{queuedAcks=Rest}).

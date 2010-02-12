@@ -18,8 +18,10 @@
   agentID,
   sessionID,
 
+  % Filled in after connecting
   name,
-  regionID
+  regionID,
+  caps
 }).
 
 

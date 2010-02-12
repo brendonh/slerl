@@ -25,7 +25,7 @@
   name,
   info,
   sup,
-  currentSim=none,
+  currentSimKey=none,
   simInfo=none
 }).
 
@@ -75,15 +75,17 @@ handle_cast(initial_connect, State) ->
       agentID=AgentID,
       sessionID=SessionID}, 
 
+    ?DBG({procs, ets:tab2list(State#state.name)}),
+
     slerl_sim_sup:start_sim_group(State#state.name, SimInfo),
 
     {noreply, State};
 
-handle_cast({{simulator, region_changed, Sim}, {_Message, SimInfo}}, State) ->
+handle_cast({simulator, region_changed, SimInfo}, State) ->
     ?DBG({region_changed, SimInfo#sim.name}),
-    {noreply, State#state{currentSim=Sim, simInfo=SimInfo}};
+    {noreply, State#state{currentSimKey={sim, SimInfo#sim.ip, SimInfo#sim.port}, simInfo=SimInfo}};
 
-handle_cast({{simulator, logged_out, _Sim}, {_Message, _SimInfo}}, State) ->
+handle_cast({simulator, logged_out, _SimInfo}, State) ->
     ?DBG(logged_out),
     exit(State#state.sup, shutdown),
     {noreply, State};
@@ -94,7 +96,7 @@ handle_cast(logout, State) ->
 
 handle_cast({trace, Trace}, State) when is_boolean(Trace) ->
     [gen_server:cast(C, {trace, Trace})
-     || [C] <- ets:match('Teania Amaterasu', {{'udp', '_', '_'}, '$1'})],
+     || [C] <- ets:match(State#state.name, {{'udp', '_', '_'}, '$1'})],
     {noreply, State};
 
 handle_cast(Other, State) ->
@@ -122,18 +124,32 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+current_sim(State) ->
+    Key = State#state.currentSimKey,
+    case ets:lookup(State#state.name, Key) of
+        [{Key, Sim}] -> Sim;
+        [] -> none
+    end.
+            
+
 do_logout(State) ->          
     ?DBG(logging_out),
-    case State#state.currentSim of
+    Sim = current_sim(State),
+    case Sim of
         none -> exit(State#state.sup, shutdown);
-        Sim -> 
+        _ -> 
             gen_server:cast(Sim, logout),
             timer:send_after(?LOGOUT_TIMEOUT, logout_timeout)
     end.
 
 
 region_getter(Name, From, State) ->
-    Sim = State#state.currentSim,
+    Sim = current_sim(State),
+    region_getter(Sim, Name, From, State).
+
+region_getter(none, _, _, _) -> 
+    {error, no_sim};
+region_getter(Sim, Name, From, State) ->
     SimInfo = State#state.simInfo,
     gen_server:call(Sim, {subscribe, 'MapBlockReply'}),
     Message = slerl_message:build_message(

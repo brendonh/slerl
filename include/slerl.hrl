@@ -40,6 +40,12 @@
 }).
 
 
+-record(chat, {
+  fromName,
+  text,
+  message
+}).
+
 
 %% Message definitions
 

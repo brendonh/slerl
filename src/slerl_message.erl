@@ -73,7 +73,7 @@ build_parameter({variable, 1}, Val) ->
     <<Size:8/integer, Val/binary>>;
 build_parameter({variable, 2}, Val) ->
     Size = byte_size(Val),
-    <<Size:16/integer, Val/binary>>;
+    <<Size:1/integer-little-unit:16, Val/binary>>;
 build_parameter({uint, 1}, Val) -> <<Val:1/unsigned-integer-little-unit:8>>;
 build_parameter({uint, 2}, Val) -> <<Val:2/unsigned-integer-little-unit:8>>;
 build_parameter({uint, 4}, Val) -> <<Val:4/unsigned-integer-little-unit:8>>;

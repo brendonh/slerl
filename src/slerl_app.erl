@@ -29,18 +29,7 @@ launch() ->
     application:start(inets),
     application:start(ssl),
     application:start(slerl),
-    {ok, [Bits]} = file:consult("login.config"),
-    First = ?GV(first, Bits),
-    Last = ?GV(last, Bits),
-    Password = ?GV(pass, Bits),
-    case slerl:login_loop(First, Last, Password, 5) of
-        {ok, _Name} -> 
-            ok;
-        Other ->
-            ?DBG({oh_noes, Other}),
-            init:stop()
-    end.
-
+    ok.
 
 
 %%====================================================================

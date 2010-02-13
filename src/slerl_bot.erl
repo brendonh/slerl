@@ -21,13 +21,16 @@
 
 -define(LOGOUT_TIMEOUT, 5000).
 
+-define(CLEAN_SUBSCRIPTIONS_INTERVAL, 60000).
+
 -record(state, {
   name,
   info,
   sup,
   currentSimKey=none,
   simInfo=none,
-  blockInfo=none
+  blockInfo=none,
+  subscriptions
 }).
 
 %%====================================================================
@@ -47,11 +50,15 @@ logout(Bot) ->
 init([Name, Info, Sup]) ->
     ets:new(Name, [set, public, named_table]),
     ets:insert(Name, {bot, self()}),
-    {ok, #state{name=Name, info=Info, sup=Sup}}.
+    timer:send_interval(?CLEAN_SUBSCRIPTIONS_INTERVAL, clean_subscriptions_timer),
+    {ok, #state{name=Name, info=Info, sup=Sup, subscriptions=dict:new()}}.
 
 
+%%====================================================================
+%% API
+%%====================================================================
 
-handle_call({get_region, Name}, From, State) ->   
+handle_call({get_region, Name}, From, State) ->
     case current_sim(State) of
         none -> {reply, no_sim, State};
         _ ->
@@ -76,6 +83,13 @@ handle_call(position, _From, State) ->
             end,
     {reply, Reply, State};
 
+handle_call({send_chat, _, _, _}=SendChat, _From, State) ->
+    Reply = case current_sim(State) of
+                none -> {error, no_sim};
+                Sim -> gen_server:cast(Sim, SendChat)
+            end,
+    {reply, Reply, State};
+
 handle_call(block, _From, State) ->
     {reply, State#state.blockInfo, State};
 
@@ -83,6 +97,10 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+
+%%====================================================================
+%% Internal bookkeeping
+%%====================================================================
 
 handle_cast(initial_connect, State) ->
     simconnect_from_login(State, State#state.info),
@@ -126,6 +144,10 @@ handle_cast({simulator, defunct, {IP, Port}}, State) ->
     end,
     {noreply, State};
 
+handle_cast({simulator, chat, Chat}, State) ->
+    broadcast_message(chat, Chat, State),
+    {noreply, State};
+
 handle_cast(logout, State) ->
     do_logout(State),
     {noreply, State};
@@ -135,10 +157,49 @@ handle_cast({trace, Trace}, State) ->
      || [C] <- ets:match(State#state.name, {{'udp', '_', '_'}, '$1'})],
     {noreply, State};
 
+
+%%--------------------------------------------------------------------
+%%% Pubsub
+%%--------------------------------------------------------------------
+
+handle_cast({subscribe, MessageNames, Proc}, State)
+  when is_list(MessageNames) ->
+    NewSubs = lists:foldl(fun(MN, D) -> dict:append(MN, Proc, D) end,
+                          State#state.subscriptions, MessageNames),
+    {noreply, State#state{subscriptions=NewSubs}};
+
+handle_cast({subscribe, MessageName, Proc}, State) ->
+    NewSubs = dict:append(MessageName, Proc, State#state.subscriptions),
+    {noreply, State#state{subscriptions=NewSubs}};
+
+handle_cast({unsubscribe, MessageName, Proc}, State) ->
+    Subs = State#state.subscriptions,
+    NewSubs = case dict:find(MessageName, Subs) of
+                  error -> Subs;
+                  {ok, OldList} ->
+                      NewList = [P || P <- OldList, P /= Proc],
+                      dict:store(MessageName, NewList, Subs)
+              end,
+    {noreply, State#state{subscriptions=NewSubs}};
+
+
+%%--------------------------------------------------------------------
+%%% Boilerplate
+%%--------------------------------------------------------------------
+
 handle_cast(Other, State) ->
     ?DBG({unexpected_cast, Other}),
     {noreply, State}.
 
+
+handle_info(clean_subscriptions_timer, State) ->
+    Subs = State#state.subscriptions,
+    NewSubsList = dict:fold(
+                    fun(K, V, A) ->
+                            V2 = [P || P <- V, is_process_alive(P)],
+                            [{K,V2}|A]
+                    end, [], Subs),
+    {noreply, State#state{subscriptions=dict:from_list(NewSubsList)}};
 
 handle_info(logout_timeout, State) ->
     exit(State#state.sup, shutdown),
@@ -160,6 +221,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+broadcast_message(Name, Message, State) ->
+    case dict:find(Name, State#state.subscriptions) of
+        error -> ok;
+        {ok, Ps} ->
+            Msg = {message, Name, Message, State#state.name},
+            [P ! Msg || P <- Ps]
+    end,
+    State.
+
+
 kill_sim(Name, IP, Port) ->
     Key = {sup, IP, Port},
     SimSup = ets:lookup_element(Name, sim_sup, 2),
@@ -174,13 +245,13 @@ simconnect_from_login(State, Info) ->
     SessionID = slerl_util:parse_uuid(I("session_id")),
 
     SimInfo = #sim{
-      ip=slerl_util:parse_ip(I("sim_ip")), 
+      ip=slerl_util:parse_ip(I("sim_ip")),
       port=list_to_integer(I("sim_port")),
       circuitCode=list_to_integer(I("circuit_code")),
       regionPos={I("region_x"), I("region_y"), 0}, % Zero?
       seedCapability=I("seed_capability"),
       agentID=AgentID,
-      sessionID=SessionID}, 
+      sessionID=SessionID},
 
     slerl_sim_sup:start_sim_group(State#state.name, SimInfo).
 
@@ -218,14 +289,14 @@ current_sim(State) ->
         [{Key, Sim}] -> Sim;
         [] -> none
     end.
-            
 
-do_logout(State) ->          
+
+do_logout(State) ->
     ?DBG(logging_out),
     Sim = current_sim(State),
     case Sim of
         none -> exit(State#state.sup, shutdown);
-        _ -> 
+        _ ->
             gen_server:cast(Sim, logout),
             timer:send_after(?LOGOUT_TIMEOUT, logout_timeout)
     end.
@@ -272,7 +343,7 @@ map_block_request(Handle, State) ->
     after 10000 ->
             fail
     end.
-     
+
 
 
 %%--------------------------------------------------------------------
@@ -284,7 +355,7 @@ do_teleport(From, RegionName, Position, State) ->
                 {ok, {remote, Info}} ->
                     simconnect_from_event(State, Info, Position),
                     {remote, pending};
-                Other -> 
+                Other ->
                     Other
             end,
     gen_server:reply(From, Reply).
@@ -296,7 +367,7 @@ teleporter(RegionName, Position, State) ->
     case region_getter(RegionName, State) of
         {ok, Block} ->
             Handle = (((?GV('X', Block)*256) bsl 32) + (?GV('Y', Block)*256)),
-            gen_server:call(Sim, {subscribe, 
+            gen_server:call(Sim, {subscribe,
                                   ['TeleportStart', 'TeleportProgress',
                                    'TeleportFailed', 'TeleportFinish',
                                    'TeleportCancel', 'TeleportLocal']}),
@@ -308,7 +379,7 @@ teleporter(RegionName, Position, State) ->
             teleport_status_loop(Position);
         Other -> Other
     end.
-            
+
 teleport_status_loop(Position) ->
     receive
         {message, 'TeleportFailed', Msg, _Conn} ->
@@ -326,7 +397,7 @@ teleport_status_loop(Position) ->
         {message, 'TeleportFinish', Msg, _Conn} ->
             [Info] = ?GV('Info', Msg#message.message),
             {ok, {remote, Info}};
-        {message, Other, Response, _Conn} ->                                         
+        {message, Other, Response, _Conn} ->
             ?DBG({other, Other, Response}),
             teleport_status_loop(Position)
     after 20000 ->

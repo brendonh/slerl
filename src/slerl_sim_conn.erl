@@ -247,7 +247,7 @@ handle_packet(Packet, State) ->
                     end;
                true -> ok
             end,
-                        
+
             handle_message(Message, NewState)
     catch Type:Error ->
                         ?TRACE({error, Type, Error}),
@@ -367,13 +367,12 @@ send(Bin, State) ->
 
 
 build_packet(Message, State) ->
-    Spec = Message#message.spec,
     Seq = Message#message.sequence,
 
     BS = 6 + byte_size(Message#message.message),
     {AckSuffix, NewState} = ack_suffix(BS, 0, [], State),
 
-    Flags = make_flags([Spec#messageDef.zerocoded,
+    Flags = make_flags([Message#message.zerocoded,
                         Message#message.reliable,
                         Message#message.resend,
                         AckSuffix /= []]),
@@ -523,6 +522,16 @@ dispatch_message('RegionHandshake', #message{message=Message}=Orig, State) ->
 
     NewState2 = send_message(Reply, true, NewState),
     broadcast_message('RegionHandshake', Orig, NewState2);
+
+
+dispatch_message('ChatFromSimulator', #message{message=Message}=Orig, State) ->
+    FromBin = slerl_util:get_field(['ChatData', 'FromName'], Message),
+    {FromName, _} = split_binary(FromBin, byte_size(FromBin)-1),
+    MsgBin = slerl_util:get_field(['ChatData', 'Message'], Message),
+    {Msg, _} = split_binary(MsgBin, byte_size(MsgBin)-1),
+    Chat = #chat{fromName=FromName, text=Msg, message=Orig},
+    gen_server:cast(State#state.name, {simulator, chat, Chat}),
+    broadcast_message('ChatFromSimulator', Orig, State);
 
 dispatch_message(Name, Message, State) ->
     broadcast_message(Name, Message, State).

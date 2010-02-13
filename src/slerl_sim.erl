@@ -77,10 +77,6 @@ handle_cast(start_connect, State) ->
     send_connect_packets(State),
     {noreply, State};
 
-handle_cast({send, Message, Reliable}, State) ->
-    send_message(Message, Reliable, State),
-    {noreply, State};
-
 handle_cast({seed_capabilities, CapsList}, State) ->
     Caps = dict:from_list(CapsList),
     NewInfo = (State#state.simInfo)#sim{caps=Caps},
@@ -94,6 +90,21 @@ handle_cast({seed_capabilities, CapsList}, State) ->
 
 handle_cast(logout, State) ->
     logout(State),
+    {noreply, State};
+
+%% --------------------------------------------
+
+handle_cast({send, Message, Reliable}, State) ->
+    send_message(Message, Reliable, State),
+    {noreply, State};
+
+handle_cast({send_chat, Type, Channel, Text}, State) ->
+    SimInfo = State#state.simInfo,
+    Message = slerl_message:build_message(
+                'ChatFromViewer',
+                [ [ SimInfo#sim.agentID, SimInfo#sim.sessionID ],
+                  [ Text, Type, Channel ] ]),
+    send_message(Message, true, State),
     {noreply, State};
 
 handle_cast(_Msg, State) ->

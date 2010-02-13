@@ -24,6 +24,7 @@
 -define(RESEND_PACKET_TIMER, 4000).
 -define(MAX_RESENDS, 2).
 -define(PING_INTERVAL, 5000). % Down from libOMV's 2200
+-define(DEFUNCT_TIMEOUT, 30000).
 
 % Number of pings to average
 -define(PING_WINDOW, 5).
@@ -50,6 +51,8 @@
 
   ackTimer,
   resendTimer,
+  defunctTimer,
+  pingTimer,
 
   pingID,
   pendingPings,
@@ -84,17 +87,26 @@ init([Name, SimInfo]) ->
 
     {ok, Socket} = gen_udp:open(?PORT, ?SOCKET_OPTIONS),
 
+    {ok, DefunctTimer} = timer:send_after(?DEFUNCT_TIMEOUT, defunct_timeout),
+    {ok, PingTimer} = timer:send_interval(?PING_INTERVAL, ping_timer),
+
     State = #state{name=Name,
                    simInfo=SimInfo,
                    socket=Socket,
+
                    sequence=1,
                    pendingPackets=gb_trees:empty(),
                    queuedAcks=[],
+
                    resendTimer=none,
                    ackTimer=none,
+                   defunctTimer=DefunctTimer,
+                   pingTimer = PingTimer,
+
                    pendingPings=[],
                    pingID=1,
                    pingWindow=[],
+
                    subscriptions=dict:new(),
                    trace=?DEBUG,
                    traceFilter=?DEBUG_IGNORE
@@ -102,7 +114,7 @@ init([Name, SimInfo]) ->
 
     ets:insert(Name, {{udp, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
 
-    timer:send_interval(?PING_INTERVAL, ping_timer),
+
     timer:send_interval(?CLEAN_SUBSCRIPTIONS_INTERVAL, clean_subscriptions_timer),
 
     {ok, State}.
@@ -147,6 +159,11 @@ handle_cast({dispatch, Messages}, State) ->
                            State, Messages),
     {noreply, NewState};
 
+handle_cast(stop_ping, State) ->
+    %% Sent by bot when no longer current simulator
+    %% Prevents pings from keeping connecton alive indefinitely
+    timer:cancel(State#state.pingTimer),
+    {noreply, State};
 
 handle_cast({trace, {filter, MsgNames}}, State) ->
     OldFilter = State#state.traceFilter,
@@ -164,6 +181,12 @@ handle_info(ack_packet_timer, State) ->
 handle_info(resend_packet_timer, State) ->
     {noreply, resend_packets(State#state{resendTimer=none})};
 
+handle_info(defunct_timeout, State) ->
+    ?DBG(sim_defunct),
+    SimInfo = State#state.simInfo,
+    gen_server:cast(State#state.name, {simulator, defunct, {SimInfo#sim.ip, SimInfo#sim.port}}),
+    {noreply, State};
+
 handle_info(clean_subscriptions_timer, State) ->
     ?TRACE(cleaning_subscriptions),
     Subs = State#state.subscriptions,
@@ -179,7 +202,9 @@ handle_info(ping_timer, State) ->
 
 handle_info({udp, Socket, IP, Port, Packet},
             #state{socket=Socket, simInfo=#sim{ip=IP, port=Port}}=State) ->
-    NewState = handle_packet(Packet, State),
+    timer:cancel(State#state.defunctTimer),
+    {ok, DefTRef} = timer:send_after(?DEFUNCT_TIMEOUT, defunct_timeout),
+    NewState = handle_packet(Packet, State#state{defunctTimer=DefTRef}),
     {noreply, NewState};
 
 handle_info({udp, Socket, IP, Port, Packet}, State) ->
@@ -198,7 +223,6 @@ terminate(_Reason, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
 
 
 %%--------------------------------------------------------------------

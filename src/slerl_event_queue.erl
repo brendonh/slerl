@@ -78,7 +78,6 @@ handle_info({http, {ReqID, Result}}, #state{reqID=ReqID}=State) ->
             NewReqID = start_poll(NewAck, NewDone, State),
             {noreply, State#state{reqID=NewReqID, lastAck=NewAck}};
         shutdown ->
-            ?DBG({event_queue, shutdown}),
             SimInfo = State#state.simInfo,
             ets:delete(State#state.name, {events, SimInfo#sim.ip, SimInfo#sim.port}),
             {stop, normal, State}

@@ -39,7 +39,6 @@ start_event_queue(Name, SimInfo) ->
 %%====================================================================
 
 init([Name, SimInfo]) ->
-
     ets:insert(Name, {{sup, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
 
     Conn = {conn,{slerl_sim_conn,start_link,[Name, SimInfo]},

@@ -90,8 +90,17 @@ handle_cast(initial_connect, State) ->
 
 handle_cast({simulator, region_changed, {SimInfo, Handle}}, State) ->
     ?DBG(region_changed),
+    OldSimInfo = State#state.simInfo,
     NewState = State#state{currentSimKey={sim, SimInfo#sim.ip, SimInfo#sim.port}, simInfo=SimInfo},
     spawn(fun() -> map_block_request(Handle, NewState) end),
+
+    if OldSimInfo == none orelse ({SimInfo#sim.ip, SimInfo#sim.port} == {OldSimInfo#sim.ip, OldSimInfo#sim.port}) ->
+            ok;
+       true ->
+            OldConn = ets:lookup_element(State#state.name, {udp, OldSimInfo#sim.ip, OldSimInfo#sim.port}, 2),
+            gen_server:cast(OldConn, stop_ping)
+    end,
+
     {noreply, NewState};
 
 handle_cast({map_block, Block}, State) ->
@@ -103,6 +112,18 @@ handle_cast({map_block, Block}, State) ->
 handle_cast({simulator, logged_out, _SimInfo}, State) ->
     ?DBG(logged_out),
     exit(State#state.sup, shutdown),
+    {noreply, State};
+
+handle_cast({simulator, defunct, {IP, Port}}, State) ->
+    SimInfo = State#state.simInfo,
+    Current = {SimInfo#sim.ip, SimInfo#sim.port},
+    if {IP, Port} == Current ->
+            ?DBG(current_simulator_defunct),
+            do_logout(State);
+       true ->
+            ?DBG({stopping_defunct_sim, IP, Port}),
+            kill_sim(State#state.name, IP, Port)
+    end,
     {noreply, State};
 
 handle_cast(logout, State) ->
@@ -139,6 +160,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+kill_sim(Name, IP, Port) ->
+    Key = {sup, IP, Port},
+    SimSup = ets:lookup_element(Name, sim_sup, 2),
+    supervisor:terminate_child(SimSup, Key),
+    supervisor:delete_child(SimSup, Key),
+    ets:match_delete(Name, {{'_', IP, Port}, '_'}).
+
+
 simconnect_from_login(State, Info) ->
     I = fun(K) -> ?GV(K, Info) end,
     AgentID = slerl_util:parse_uuid(I("agent_id")),
@@ -164,9 +193,15 @@ simconnect_from_event(State, Event, Position) ->
     CircuitCode = list_to_integer(?GV("circuit_code", State#state.info)),
     SessionID = slerl_util:parse_uuid(?GV("session_id", State#state.info)),
 
+    IP = list_to_tuple(I('SimIP')),
+    Port = I('SimPort'),
+
+    % Make sure we have a clean slate
+    kill_sim(State#state.name, IP, Port),
+
     SimInfo = #sim{
-      ip=list_to_tuple(I('SimIP')),
-      port=I('SimPort'),
+      ip=IP,
+      port=Port,
       circuitCode=CircuitCode,
       regionPos=Position,
       seedCapability=I('SeedCapability'),

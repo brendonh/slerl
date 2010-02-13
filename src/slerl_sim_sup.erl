@@ -29,7 +29,10 @@ start_link(Name) ->
 
 start_sim_group(Name, SimInfo) ->
     Self = ets:lookup_element(Name, sim_sup, 2),
-    supervisor:start_child(Self, [SimInfo]),
+    Key = {sup, SimInfo#sim.ip, SimInfo#sim.port},
+    ChildSpec = {Key,{slerl_sim_group_sup,start_link,[Name, SimInfo]},
+                 transient,2000,supervisor,[slerl_sim_group_sup]},
+    supervisor:start_child(Self, ChildSpec),
     Sim = ets:lookup_element(Name, {sim, SimInfo#sim.ip, SimInfo#sim.port}, 2),
     gen_server:cast(Sim, start_connect).
 
@@ -40,9 +43,7 @@ start_sim_group(Name, SimInfo) ->
 
 init([Name]) ->
     ets:insert(Name, {sim_sup, self()}),
-    ChildSpec = {none,{slerl_sim_group_sup,start_link,[Name]},
-                 permanent,2000,supervisor,[slerl_sim_group_sup]},
-    {ok,{{simple_one_for_one,1,10}, [ChildSpec]}}.
+    {ok,{{one_for_one,1,10}, []}}.
 
 
 %%====================================================================

@@ -71,15 +71,17 @@ decode_xml(Str)->
 decode(#xmlElement{name=undef}) -> null;
 decode(#xmlElement{name=boolean, content=[]}) -> false;
 decode(#xmlElement{name=boolean}) -> true;
-decode(#xmlElement{name=integer, content=[X|_]}) -> list_to_integer(get_text(X));
-decode(#xmlElement{name=real, content=[X|_]}) -> list_to_float(get_text(X));
-decode(#xmlElement{name=uuid, content=[UUID|_]}) -> get_text(UUID);
+decode(#xmlElement{name=string, content=[]}) -> ""; % Hrm
 decode(#xmlElement{name=string, content=[Str|_]}) -> get_text(Str);
+decode(#xmlElement{name=map, content=KV}) -> decode_map(KV, []);
+decode(#xmlElement{name=array, content=L}) -> lists:map(fun decode/1, L);
+decode(#xmlElement{content=[]}) -> null;
+decode(#xmlElement{name=integer, content=[X|_]}) -> list_to_integer(get_text(X));
+decode(#xmlElement{name=real, content=[X|_]}) -> float_please(get_text(X));
+decode(#xmlElement{name=uuid, content=[UUID|_]}) -> get_text(UUID);
 decode(#xmlElement{name=binary, content=[B64|_]}) -> base64:decode_to_string(get_text(B64));
 decode(#xmlElement{name=date, content=[DateStr|_]}) -> iso_8601_decode(get_text(DateStr));
-decode(#xmlElement{name=uri, content=[URI|_]}) -> get_text(URI);
-decode(#xmlElement{name=map, content=KV}) -> decode_map(KV, []);
-decode(#xmlElement{name=array, content=L}) -> lists:map(fun decode/1, L).
+decode(#xmlElement{name=uri, content=[URI|_]}) -> get_text(URI).
 
 iso_8601_decode(Str) ->
     [Year,Month,Day,Hour,Min,Sec|_] = string:tokens(Str, "-T:Z"),
@@ -93,6 +95,12 @@ decode_map([K,V|Rest], Buff) ->
     decode_map(Rest, [{list_to_atom(get_text(K)),decode(V)}|Buff]).
      
 
+float_please(S) ->
+    case lists:member($., S) of
+        true -> list_to_float(S);
+        _ -> float(list_to_integer(S))
+    end.
+            
 
 %%--------------------------------------------------------------------
 

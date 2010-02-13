@@ -23,11 +23,13 @@
   name,
   simInfo,
   url,
-  reqID
+  reqID,
+  lastAck,
+  connKey
 }).
 
 -define(HTTP_HEADERS, [{"Accept", "*/*"}, {"User-Agent", "Erlang/slerl"}]).
--define(HTTP_OPTIONS, [{relaxed, true}]).
+-define(HTTP_OPTIONS, [{timeout, 30000}, {relaxed, true}]).
 
 
 %%====================================================================
@@ -48,7 +50,8 @@ init([Name, SimInfo]) ->
     gen_server:cast(self(), go),
 
     {ok, URL} = dict:find('EventQueueGet', SimInfo#sim.caps),
-    {ok, #state{name=Name, simInfo=SimInfo, url=URL, reqID=none}}.
+    {ok, #state{name=Name, simInfo=SimInfo, url=URL, reqID=none, lastAck=null,
+                connKey={udp, SimInfo#sim.ip, SimInfo#sim.port}}}.
 
 
 handle_call(_Request, _From, State) ->
@@ -70,11 +73,18 @@ handle_cast(_Msg, State) ->
 
 
 handle_info({http, {ReqID, Result}}, #state{reqID=ReqID}=State) ->
-    NewReqID = handle_result(Result, State),
-    {noreply, State#state{reqID=NewReqID}};
+    case handle_result(Result, State) of
+        {ok, NewAck, NewDone} -> 
+            NewReqID = start_poll(NewAck, NewDone, State),
+            {noreply, State#state{reqID=NewReqID, lastAck=NewAck}};
+        shutdown ->
+            ?DBG({event_queue, shutdown}),
+            SimInfo = State#state.simInfo,
+            ets:delete(State#state.name, {events, SimInfo#sim.ip, SimInfo#sim.port}),
+            {stop, normal, State}
+    end;
     
-handle_info(Info, State) ->
-    ?DBG({unexpected_info, Info}),
+handle_info(_Info, State) ->
     {noreply, State}.
 
 
@@ -91,6 +101,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+get_conn(#state{name=Name, connKey=ConnKey}) ->
+    ets:lookup_element(Name, ConnKey, 2).
+
+
 start_poll(Ack, Done, State) ->
     Message = {map, [{ack, Ack}, {done, Done}]},
     XML = slerl_llsd:encode_xml(Message),
@@ -99,15 +113,37 @@ start_poll(Ack, Done, State) ->
     ReqID.
 
 
-handle_result({{_,502,_}, _, _}, State) ->
-    start_poll(null, false, State);
-handle_result({{_,200,_}, _, Body}, _State) ->
-    ?DBG({got_body, Body}),
-    none;
+handle_result({error, timeout}, State) ->
+    {ok, State#state.lastAck, false};
+handle_result({{_,502,_}, _, _}, _State) ->
+    {ok, null, false};
+handle_result({{_,200,_}, _, Body}, State) ->
+    S = binary_to_list(Body),
+    M = slerl_llsd:decode_xml(S),
+    Messages = [build_event(E) || E <- ?GV(events, M)],
+    NewAck = ?GV(id, M),
+    case Messages of
+        [] -> ok;
+        _ -> 
+            Conn = get_conn(State),
+            gen_server:cast(Conn, {dispatch, Messages})
+    end,
+    {ok, NewAck, false};
+handle_result({{_,404,_}, _Headers, _Body}, _State) ->
+    shutdown;
+handle_result({{_,401,_}, _Headers, _Body}, _State) ->
+    shutdown;
 handle_result({{_,Code,_}, Headers, Body}, _State) ->
     ?DBG({unexpected_reply, Code, Headers, Body}),
-    none.
+    {ok, null, false}.
+
                      
+
+build_event(LLSD) ->
+    MsgName = list_to_atom(?GV(message, LLSD)),
+    #message{spec=ets:lookup_element(slerl_messages, MsgName, 2),
+             message=?GV(body, LLSD)}.
+
 
 
 stop(State) ->

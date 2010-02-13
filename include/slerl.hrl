@@ -21,6 +21,7 @@
   % Filled in after connecting
   name,
   regionID,
+  handle,
   caps
 }).
 

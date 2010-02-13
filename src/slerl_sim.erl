@@ -21,7 +21,9 @@
 -record(state, {
   name,
   simInfo,
-  connKey
+  connKey,
+  position,
+  lookAt
 }).
 
 %%====================================================================
@@ -44,7 +46,9 @@ init([Name, SimInfo]) ->
     State = #state{
       name=Name,
       simInfo=SimInfo,
-      connKey={udp, SimInfo#sim.ip, SimInfo#sim.port}
+      connKey={udp, SimInfo#sim.ip, SimInfo#sim.port},
+      position=SimInfo#sim.regionPos,
+      lookAt={0.0, 1.0, 0.0}
      },
 
     ets:insert(Name, {{sim, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
@@ -60,6 +64,9 @@ handle_call({subscribe, MessageName}, {Pid, _}, State) ->
 handle_call({unsubscribe, MessageName}, {Pid, _}, State) -> 
     gen_server:cast(get_conn(State), {unsubscribe, MessageName, Pid}),
     {reply, ok, State};
+
+handle_call(position, _From, State) ->
+    {reply, {State#state.position, State#state.lookAt}, State};
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
@@ -95,14 +102,20 @@ handle_cast(_Msg, State) ->
 %% --------------------------------------------
 
 handle_info({message, 'AgentMovementComplete', Message, Conn}, State) ->
+    request_seed_caps(State),
     agent_movement_complete(Message, Conn, State);
 
 handle_info({message, 'LogoutReply', Message, Conn}, State) ->
     logged_out(Message, Conn, State);
 
 handle_info({message, 'RegionHandshake', _Message, _Conn}, State) ->
-    request_seed_caps(State),
     {noreply, State};
+
+handle_info({message, 'TeleportLocal', Message, _Conn}, State) ->
+    Info = ?GV('Info', Message#message.message),
+    Position = ?GV('Position', Info),
+    LookAt = ?GV('LookAt', Info),
+    {noreply, State#state{position=Position, lookAt=LookAt}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -134,8 +147,7 @@ subscribe(MessageName, State) ->
 
 
 bot_cast(Message, State) ->
-    Bot = ets:lookup_element(State#state.name, bot, 2),
-    gen_server:cast(Bot, Message).
+    gen_server:cast(State#state.name, Message).
 
 
 request_seed_caps(State) ->
@@ -155,9 +167,10 @@ request_seed_caps(State) ->
 %%====================================================================
 
 send_connect_packets(State) ->
-    subscribe('RegionHandshake', State),
-    subscribe('AgentMovementComplete', State),
-    subscribe('LogoutReply', State),
+    subscribe(['RegionHandshake', 'AgentMovementComplete',
+               'LogoutReply', 
+               'TeleportLocal', 'TeleportFinish'], 
+              State),
     use_circuit_code(State),
     complete_agent_movement(State).
 
@@ -203,12 +216,62 @@ close_circuit(State) ->
 %% Message forwarding
 %%====================================================================
 
-agent_movement_complete(_Message, {_Conn, SimInfo}, State) ->
-    bot_cast({simulator, region_changed, SimInfo}, State),
-    {noreply, State}.
+agent_movement_complete(Message, {_Conn, _SimInfo}, State) ->
+    Data = ?GV('Data', Message#message.message),
+    Position = ?GV('Position', Data),
+    LookAt = ?GV('LookAt', Data),
+    NewState = State#state{position=Position, lookAt=LookAt},
+    Handle = ?GV('RegionHandle', Data),
+    bot_cast({simulator, region_changed, {State#state.simInfo, Handle}}, NewState),
+    %send_agent_update(NewState),
+    {noreply, NewState}.
 
 logged_out(_Message, {_Conn, SimInfo}, State) ->
     bot_cast({simulator, logged_out, SimInfo}, State),
     {noreply, State}.
 
+
+send_agent_update(State) ->
+    Sim = State#state.simInfo,
+
+    Forward = State#state.lookAt,
+    Up = {0.0, 0.0, 1.0}, 
+    Left = slerl_util:cross_product(Up, Forward),
+
+    Message = slerl_message:build_message(
+                'AgentUpdate', 
+                [ [ Sim#sim.agentID, Sim#sim.sessionID,
+                    {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},   % Body / head rotation
+                    0,                                  % walking / mouselook / typing
+                    State#state.position,
+                    Forward, Left, Up,
+                    0,                                  % Far
+                    0,                                  % ControlFlags,
+                    0                                   % AgentFlags (1 = hide group)
+                   ] ]),
+
+    gen_server:cast(get_conn(State), {trace, true}),
+    send_message(Message, true, State),
+    ok.
+
+
+%(ControlFlags.AGENT_CONTROL_AWAY |
+% ControlFlags.AGENT_CONTROL_FLY |
+% ControlFlags.AGENT_CONTROL_MOUSELOOK |
+% ControlFlags.AGENT_CONTROL_UP_NEG)
+
+	%% AgentUpdate High 4 NotTrusted Zerocoded
+	%% 	{	AgentID			LLUUID	}
+	%% 	{	SessionID		LLUUID	}
+	%% 	{	BodyRotation	LLQuaternion	}
+	%% 	{	HeadRotation	LLQuaternion	}
+	%% 	{	State			U8	}
+	%% 	{	CameraCenter	LLVector3	}
+	%% 	{	CameraAtAxis	LLVector3	}
+	%% 	{	CameraLeftAxis	LLVector3	}
+	%% 	{	CameraUpAxis	LLVector3	}
+	%% 	{	Far				F32	}
+	%% 	{	ControlFlags	U32	}
+	%% 	{	Flags			U8	}
+	%% }
 

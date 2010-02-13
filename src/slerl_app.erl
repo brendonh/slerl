@@ -60,7 +60,7 @@ prep_stop(State) ->
     ?DBG(stopping),
     [B:logout() || {Bot,_,_,_} <- supervisor:which_children(slerl_sup),
                    B <- [{slerl_api, Bot}]],
-    receive after 2000 -> ok end,
+    receive after 500 -> ok end,
     State.
 
 stop(_State) ->

@@ -51,7 +51,7 @@ login(First, Last, Password, Start) ->
     end.
 
 
-start_bot(Name, Info) ->   
+start_bot(Name, Info) ->  
     slerl_sup:start_bot(Name, Info),
     gen_server:cast(Name, initial_connect),
     {ok, Name}.

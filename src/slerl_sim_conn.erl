@@ -36,7 +36,7 @@
 -define(CLEAN_SUBSCRIPTIONS_INTERVAL, 60000).
 
 -define(DEBUG, false). % Puts us straight into trace mode
-%-define(DEBUG_IGNORE, ['PacketAck', 'ViewerEffect', 'PreloadSound', 'AttachedSound']).
+-define(DEBUG_IGNORE, ['PacketAck', 'ViewerEffect', 'PreloadSound', 'AttachedSound', 'CoarseLocationUpdate', 'CompletePingCheck']).
 -define(TRACE(T), if State#state.trace -> ?DBG(T); true -> ok end).
 
 -record(state, {
@@ -57,7 +57,8 @@
 
   subscriptions,
 
-  trace
+  trace,
+  traceFilter
 }).
 
 
@@ -95,7 +96,8 @@ init([Name, SimInfo]) ->
                    pingID=1,
                    pingWindow=[],
                    subscriptions=dict:new(),
-                   trace=?DEBUG
+                   trace=?DEBUG,
+                   traceFilter=?DEBUG_IGNORE
                   },
 
     ets:insert(Name, {{udp, SimInfo#sim.ip, SimInfo#sim.port}, self()}),
@@ -115,6 +117,12 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 
+handle_cast({subscribe, MessageNames, Proc}, State) 
+  when is_list(MessageNames) ->
+    NewSubs = lists:foldl(fun(MN, D) -> dict:append(MN, Proc, D) end,
+                          State#state.subscriptions, MessageNames),
+    {noreply, State#state{subscriptions=NewSubs}};
+
 handle_cast({subscribe, MessageName, Proc}, State) ->
     NewSubs = dict:append(MessageName, Proc, State#state.subscriptions),
     {noreply, State#state{subscriptions=NewSubs}};
@@ -132,6 +140,17 @@ handle_cast({unsubscribe, MessageName, Proc}, State) ->
 handle_cast({send, Message, Reliable}, State) ->
     {noreply, send_message(Message, Reliable, State)};
 
+handle_cast({dispatch, Messages}, State) ->
+    NewState = lists:foldl(fun(M, PrevState) -> 
+                                   Name = (M#message.spec)#messageDef.name,
+                                   dispatch_message(Name, M, PrevState) end,
+                           State, Messages),
+    {noreply, NewState};
+
+
+handle_cast({trace, {filter, MsgNames}}, State) ->
+    OldFilter = State#state.traceFilter,
+    {noreply, State#state{traceFilter=OldFilter ++ MsgNames}};
 handle_cast({trace, Trace}, State) when is_boolean(Trace) ->
     {noreply, State#state{trace=Trace}};
 
@@ -195,7 +214,16 @@ handle_packet(Packet, State) ->
         {Message, Acks} ->
             Spec = Message#message.spec,
             NewState = process_acks(Acks, State),
-            ?TRACE({got, Message#message.sequence, Spec#messageDef.name}),
+
+            if State#state.trace ->
+                    case not lists:member(Spec#messageDef.name, 
+                                          State#state.traceFilter) of
+                        true -> ?DBG({got, Message#message.sequence, Spec#messageDef.name});
+                        _ -> ok
+                    end;
+               true -> ok
+            end,
+                        
             handle_message(Message, NewState)
     catch Type:Error ->
                         ?TRACE({error, Type, Error}),

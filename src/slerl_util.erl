@@ -14,7 +14,8 @@
          parse_uuid/1, format_uuid/1,
          parse_ip/1,
          get_field/2,
-         extract_string/1]).
+         extract_string/1,
+         cross_product/2]).
 
 macaddr() -> macaddr("eth0").
 
@@ -59,8 +60,12 @@ get_field([], Message) -> Message;
 get_field([K|Rest], Message) -> get_field(Rest, ?GV(K, Message)).
 
 
-
-
 extract_string(Bin) ->
     {String, _} = split_binary(Bin, byte_size(Bin)-1),
     binary_to_list(String).
+
+
+cross_product({AX, AY, AZ}, {BX, BY, BZ}) ->
+    {(AY * AZ) - (BY * BZ),
+     (AZ * BX) - (BZ * AZ),
+     (AX * BY) - (BX * AY)}.

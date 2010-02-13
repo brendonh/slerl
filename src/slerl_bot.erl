@@ -106,19 +106,19 @@ handle_cast(initial_connect, State) ->
     simconnect_from_login(State, State#state.info),
     {noreply, State};
 
-handle_cast({simulator, region_changed, {SimInfo, Handle}}, State) ->
-    ?DBG(region_changed),
+handle_cast({simulator, region_changed, {SimInfo, SimName}}, State) ->
+    ?DBG({region_changed, SimName}),
     OldSimInfo = State#state.simInfo,
     NewState = State#state{currentSimKey={sim, SimInfo#sim.ip, SimInfo#sim.port}, simInfo=SimInfo},
-    spawn(fun() -> map_block_request(Handle, NewState) end),
-
+    %% spawn(fun() -> map_block_request(Handle, NewState) end),
+    
     if OldSimInfo == none orelse ({SimInfo#sim.ip, SimInfo#sim.port} == {OldSimInfo#sim.ip, OldSimInfo#sim.port}) ->
             ok;
        true ->
             OldConn = ets:lookup_element(State#state.name, {udp, OldSimInfo#sim.ip, OldSimInfo#sim.port}, 2),
             gen_server:cast(OldConn, stop_ping)
     end,
-
+    
     {noreply, NewState};
 
 handle_cast({map_block, Block}, State) ->

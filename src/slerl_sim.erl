@@ -57,11 +57,11 @@ init([Name, SimInfo]) ->
 
 %% --------------------------------------------
 
-handle_call({subscribe, MessageName}, {Pid, _}, State) -> 
+handle_call({subscribe, MessageName}, {Pid, _}, State) ->
     gen_server:cast(get_conn(State), {subscribe, MessageName, Pid}),
     {reply, ok, State};
 
-handle_call({unsubscribe, MessageName}, {Pid, _}, State) -> 
+handle_call({unsubscribe, MessageName}, {Pid, _}, State) ->
     gen_server:cast(get_conn(State), {unsubscribe, MessageName, Pid}),
     {reply, ok, State};
 
@@ -113,20 +113,23 @@ handle_cast(_Msg, State) ->
 %% --------------------------------------------
 
 handle_info({message, 'AgentMovementComplete', Message, Conn}, State) ->
-    request_seed_caps(State),
     agent_movement_complete(Message, Conn, State);
 
 handle_info({message, 'LogoutReply', Message, Conn}, State) ->
     logged_out(Message, Conn, State);
-
-handle_info({message, 'RegionHandshake', _Message, _Conn}, State) ->
-    {noreply, State};
 
 handle_info({message, 'TeleportLocal', Message, _Conn}, State) ->
     Info = ?GV('Info', Message#message.message),
     Position = ?GV('Position', Info),
     LookAt = ?GV('LookAt', Info),
     {noreply, State#state{position=Position, lookAt=LookAt}};
+
+handle_info({message, 'RegionHandshake', Message, _Conn}, State) ->
+    request_seed_caps(State),
+    SimName = slerl_util:extract_string(
+                slerl_util:get_field(['RegionInfo', 'SimName'], Message#message.message)),
+    bot_cast({simulator, region_changed, {State#state.simInfo, SimName}}, State),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -165,7 +168,7 @@ request_seed_caps(State) ->
     SimInfo = State#state.simInfo,
     URL = SimInfo#sim.seedCapability,
     Self = self(),
-    spawn(fun() -> 
+    spawn(fun() ->
        case slerl_caps:request_seed_caps(URL) of
            {ok, Caps} -> gen_server:cast(Self, {seed_capabilities, Caps});
            _ -> ok
@@ -178,15 +181,14 @@ request_seed_caps(State) ->
 %%====================================================================
 
 send_connect_packets(State) ->
-    subscribe(['RegionHandshake', 'AgentMovementComplete',
-               'LogoutReply', 
-               'TeleportLocal', 'TeleportFinish'], 
+    subscribe(['AgentMovementComplete', 'RegionHandshake', 'LogoutReply',
+               'TeleportLocal', 'TeleportFinish'],
               State),
     use_circuit_code(State),
     complete_agent_movement(State).
 
 
-use_circuit_code(State) ->    
+use_circuit_code(State) ->
     Sim = State#state.simInfo,
     Code = Sim#sim.circuitCode,
 
@@ -195,7 +197,7 @@ use_circuit_code(State) ->
                 [ [Code, Sim#sim.sessionID, Sim#sim.agentID] ]),
 
     send_message(Message, true, State).
-    
+
 
 complete_agent_movement(State) ->
     Sim = State#state.simInfo,
@@ -204,7 +206,7 @@ complete_agent_movement(State) ->
     Message = slerl_message:build_message(
                 'CompleteAgentMovement',
                 [ [Sim#sim.agentID, Sim#sim.sessionID, Code ] ]),
-    
+
     send_message(Message, true, State).
 
 
@@ -221,7 +223,7 @@ close_circuit(State) ->
     Message = slerl_message:build_message('CloseCircuit', []),
     % Should this *really* be reliable? It is in libOMV
     send_message(Message, true, State).
-    
+
 
 %%====================================================================
 %% Message forwarding
@@ -232,8 +234,6 @@ agent_movement_complete(Message, {_Conn, _SimInfo}, State) ->
     Position = ?GV('Position', Data),
     LookAt = ?GV('LookAt', Data),
     NewState = State#state{position=Position, lookAt=LookAt},
-    Handle = ?GV('RegionHandle', Data),
-    bot_cast({simulator, region_changed, {State#state.simInfo, Handle}}, NewState),
     %send_agent_update(NewState),
     {noreply, NewState}.
 
@@ -246,11 +246,11 @@ send_agent_update(State) ->
     Sim = State#state.simInfo,
 
     Forward = State#state.lookAt,
-    Up = {0.0, 0.0, 1.0}, 
+    Up = {0.0, 0.0, 1.0},
     Left = slerl_util:cross_product(Up, Forward),
 
     Message = slerl_message:build_message(
-                'AgentUpdate', 
+                'AgentUpdate',
                 [ [ Sim#sim.agentID, Sim#sim.sessionID,
                     {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},   % Body / head rotation
                     0,                                  % walking / mouselook / typing

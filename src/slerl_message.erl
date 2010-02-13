@@ -114,9 +114,7 @@ parse_message(<<HighID:1/integer-unit:8, Rest/binary>>, Message) ->
 parse_message2(MID, Rest, Message) ->
     Spec = ets:lookup_element(slerl_messageByID, MID, 2),
 
-    Decoded = if Message#message.zerocoded -> zero_decode(Rest);
-                 true -> Rest end,
-    {Blocks, Tail} = parse_blocks(Spec#messageDef.blocks, Decoded, []),
+    {Blocks, Tail} = parse_blocks(Spec#messageDef.blocks, Rest, []),
 
     case {Tail, Spec#messageDef.name} of
         {_, 'TestMessage'} -> ok;

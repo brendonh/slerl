@@ -18,6 +18,8 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+-export([handle_packet/2]).
+
 % These values generally follow libOMV settings.
 -define(MTU, 1200).
 -define(ACK_PACKET_TIMER, 500).
@@ -283,7 +285,10 @@ parse_packet(<<Zeroed:1/integer-unit:1, Reliable:1/integer-unit:1,
       resend=bool(Resent),
       sequence=Sequence},
 
-    Message =  parse_message(ExtraHeader, MessageBlock, Skeleton),
+    Decoded = if Skeleton#message.zerocoded -> slerl_message:zero_decode(MessageBlock);
+                 true -> MessageBlock end,
+
+    Message = parse_message(ExtraHeader, Decoded, Skeleton),
     {Message, Acks}.
 
 
@@ -532,6 +537,8 @@ dispatch_message('ChatFromSimulator', #message{message=Message}=Orig, State) ->
     Chat = #chat{fromName=FromName, text=Msg, message=Orig},
     gen_server:cast(State#state.name, {simulator, chat, Chat}),
     broadcast_message('ChatFromSimulator', Orig, State);
+
+%dispatch_message('ImprovedInstantMessage', 
 
 dispatch_message(Name, Message, State) ->
     broadcast_message(Name, Message, State).

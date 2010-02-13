@@ -47,5 +47,6 @@ chat_logger() ->
 
 convert_chat_code(0) -> whisper;
 convert_chat_code(1) -> say;
-convert_chat_code(2) -> shout.
+convert_chat_code(2) -> shout;
+convert_chat_code(_) -> unknown.
     

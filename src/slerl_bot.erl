@@ -114,8 +114,11 @@ handle_call(retrieve_ims, _From, State) ->
     {reply, Reply, State};
 
 handle_call({send_im, UUID, Text}, _From, State) ->
-    send_im(UUID, none, Text, State),
-    {reply, ok, State};
+    Reply = case current_sim(State) of
+                none -> {error, no_sim};
+                _ -> send_im(UUID, none, Text, State)
+            end,
+    {reply, Reply, State};
 
 handle_call(_Request, _From, State) ->
     {reply, unknown_call, State}.

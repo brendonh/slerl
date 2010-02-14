@@ -129,7 +129,7 @@ handle_info({message, 'RegionHandshake', Message, _Conn}, State) ->
     SimName = slerl_util:extract_string(
                 slerl_util:get_field(['RegionInfo', 'SimName'], Message#message.message)),
     RegionID = slerl_util:get_field(['RegionInfo2', 'RegionID'], Message#message.message),
-    NewSimInfo = (State#state.simInfo)#sim{regionID=RegionID},
+    NewSimInfo = (State#state.simInfo)#sim{regionID=RegionID, name=SimName},
     bot_cast({simulator, region_changed, {NewSimInfo, SimName}}, State),
     {noreply, State#state{simInfo=NewSimInfo}};
 

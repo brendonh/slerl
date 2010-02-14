@@ -11,7 +11,7 @@
          position/0, block/0,
          teleport/2, 
          chat/1, chat/2, chat/3,
-         im_name/2,
+         im/2,
          retrieve_ims/0,
          subscribe/1, unsubscribe/1,
          get_region/1, get_uuids/1,
@@ -53,7 +53,7 @@ chat(Type, Channel, Text) ->
                           Channel, 
                           make_bin_string(Text)}).
 
-im_name(Name, Text) ->
+im(Name, Text) ->
     case exact_avatar_uuid(Name) of
         not_found -> {error, not_found};
         UUID -> gen_server:call(Bot, {send_im, UUID, make_bin_string(Text)})

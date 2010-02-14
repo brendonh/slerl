@@ -42,6 +42,14 @@
 
 -record(chat, {
   fromName,
+  type,
+  text,
+  message
+}).
+
+-record(im, {
+  fromName,
+  type,
   text,
   message
 }).

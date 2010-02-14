@@ -12,7 +12,7 @@ test() ->
     Last = ?GV(last, Bits),
     Password = ?GV(pass, Bits),
     case slerl:login_loop(First, Last, Password, 5) of
-        {ok, Bot} -> 
+        {ok, Bot} ->
             after_login(Bot);
         Other ->
             ?DBG({oh_noes, Other}),
@@ -29,24 +29,27 @@ after_login(Bot) ->
 
 start_chat_logger(Bot) ->
     spawn(fun() ->
-                  Bot:subscribe(chat),
+                  Bot:subscribe([chat, im]),
                   chat_logger()
           end).
 
 chat_logger() ->
     receive
         {message, chat, Chat, _Name} ->
-            Message = Chat#chat.message,
-            Type = convert_chat_code(slerl_util:get_field(['ChatData', 'ChatType'], Message#message.message)),
-            io:format("(~.8s) <~s> ~s~n", [Type, Chat#chat.fromName, Chat#chat.text]);
+            io:format("(~.8s) <~s> ~s~n", 
+                      [Chat#chat.type, Chat#chat.fromName, Chat#chat.text]);
+
+        {message, im, #im{type=message_from_agent}=IM, _Name} ->
+            io:format("*****IM***** <~s> ~s~n", 
+                      [IM#im.fromName, IM#im.text]);
+
+        {message, im, IM, _Name} ->
+            io:format("[~s ~s]~n", [IM#im.fromName, IM#im.type]);
+
         Other ->
             ?DBG({other, Other})
     end,
     chat_logger().
 
 
-convert_chat_code(0) -> whisper;
-convert_chat_code(1) -> say;
-convert_chat_code(2) -> shout;
-convert_chat_code(_) -> unknown.
-    
+

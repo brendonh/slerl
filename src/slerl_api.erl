@@ -11,6 +11,7 @@
          position/0, block/0,
          teleport/2, 
          chat/1, chat/2, chat/3,
+         retrieve_ims/0,
          subscribe/1, unsubscribe/1,
          get_region/1,
          trace/1, trace_filter/1]).
@@ -49,6 +50,8 @@ chat(Type, Channel, Text) ->
                           Channel, 
                           make_bin_string(Text)}).
 
+retrieve_ims() ->
+    gen_server:call(Bot, retrieve_ims).
 
 %%====================================================================
 %% Config / utility

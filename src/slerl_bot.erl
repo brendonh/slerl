@@ -93,6 +93,19 @@ handle_call({send_chat, _, _, _}=SendChat, _From, State) ->
 handle_call(block, _From, State) ->
     {reply, State#state.blockInfo, State};
 
+handle_call(retrieve_ims, _From, State) ->
+    case current_sim(State) of
+        none -> Reply = {error, no_sim};
+        Sim -> 
+            SimInfo = State#state.simInfo,
+            Message = slerl_message:build_message(
+                        'RetrieveInstantMessages',
+                        [ [ SimInfo#sim.agentID, SimInfo#sim.sessionID ] ]),
+            gen_server:cast(Sim, {send, Message, true}),
+            Reply = ok
+    end,
+    {reply, Reply, State};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -121,12 +134,6 @@ handle_cast({simulator, region_changed, {SimInfo, SimName}}, State) ->
     
     {noreply, NewState};
 
-handle_cast({map_block, Block}, State) ->
-    Name = slerl_util:extract_string(?GV('Name', Block)),
-    ?DBG({now_in, Name}),
-    NewSimInfo = (State#state.simInfo)#sim{name=Name},
-    {noreply, State#state{blockInfo=Block, simInfo=NewSimInfo}};
-
 handle_cast({simulator, logged_out, _SimInfo}, State) ->
     ?DBG(logged_out),
     exit(State#state.sup, shutdown),
@@ -144,9 +151,10 @@ handle_cast({simulator, defunct, {IP, Port}}, State) ->
     end,
     {noreply, State};
 
-handle_cast({simulator, chat, Chat}, State) ->
-    broadcast_message(chat, Chat, State),
+handle_cast({simulator, Type, Message}, State) ->
+    broadcast_message(Type, Message, State),
     {noreply, State};
+
 
 handle_cast(logout, State) ->
     do_logout(State),
@@ -156,7 +164,7 @@ handle_cast({trace, Trace}, State) ->
     [gen_server:cast(C, {trace, Trace})
      || [C] <- ets:match(State#state.name, {{'udp', '_', '_'}, '$1'})],
     {noreply, State};
-
+       
 
 %%--------------------------------------------------------------------
 %%% Pubsub
@@ -324,25 +332,32 @@ region_getter(Name, State) ->
     end.
 
 
-map_block_request(Handle, State) ->
-    Sim = current_sim(State),
-    SimInfo = State#state.simInfo,
-    <<X:1/unsigned-integer-unit:32, Y:1/unsigned-integer-unit:32>> = <<Handle:1/unsigned-integer-unit:64>>,
-    XR = round(X / 256), YR = round(Y / 256),
-    gen_server:call(Sim, {subscribe, 'MapBlockReply'}),
-    Message = slerl_message:build_message(
-                'MapBlockRequest',
-                [ [SimInfo#sim.agentID, SimInfo#sim.sessionID, 0, 0, false],
-                  [ XR, XR, YR, YR ] ]),
-    gen_server:cast(Sim, {send, Message, true}),
-    receive
-        {message, 'MapBlockReply', Response, _Conn} ->
-            [Block] = ?GV('Data', Response#message.message),
-            gen_server:cast(State#state.name, {map_block, Block});
-        _ -> ignore
-    after 10000 ->
-            fail
-    end.
+
+%% handle_cast({map_block, Block}, State) ->
+%%     Name = slerl_util:extract_string(?GV('Name', Block)),
+%%     ?DBG({now_in, Name}),
+%%     NewSimInfo = (State#state.simInfo)#sim{name=Name},
+%%     {noreply, State#state{blockInfo=Block, simInfo=NewSimInfo}};
+
+%% map_block_request(Handle, State) ->
+%%     Sim = current_sim(State),
+%%     SimInfo = State#state.simInfo,
+%%     <<X:1/unsigned-integer-unit:32, Y:1/unsigned-integer-unit:32>> = <<Handle:1/unsigned-integer-unit:64>>,
+%%     XR = round(X / 256), YR = round(Y / 256),
+%%     gen_server:call(Sim, {subscribe, 'MapBlockReply'}),
+%%     Message = slerl_message:build_message(
+%%                 'MapBlockRequest',
+%%                 [ [SimInfo#sim.agentID, SimInfo#sim.sessionID, 0, 0, false],
+%%                   [ XR, XR, YR, YR ] ]),
+%%     gen_server:cast(Sim, {send, Message, true}),
+%%     receive
+%%         {message, 'MapBlockReply', Response, _Conn} ->
+%%             [Block] = ?GV('Data', Response#message.message),
+%%             gen_server:cast(State#state.name, {map_block, Block});
+%%         _ -> ignore
+%%     after 10000 ->
+%%             fail
+%%     end.
 
 
 

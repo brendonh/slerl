@@ -530,15 +530,24 @@ dispatch_message('RegionHandshake', #message{message=Message}=Orig, State) ->
 
 
 dispatch_message('ChatFromSimulator', #message{message=Message}=Orig, State) ->
-    FromBin = slerl_util:get_field(['ChatData', 'FromName'], Message),
-    {FromName, _} = split_binary(FromBin, byte_size(FromBin)-1),
-    MsgBin = slerl_util:get_field(['ChatData', 'Message'], Message),
-    {Msg, _} = split_binary(MsgBin, byte_size(MsgBin)-1),
-    Chat = #chat{fromName=FromName, text=Msg, message=Orig},
+    FromName = slerl_util:get_binary_string(['ChatData', 'FromName'], Message),
+    Text = slerl_util:get_binary_string(['ChatData', 'Message'], Message),
+    Type = slerl_util:convert_chat_code(
+             slerl_util:get_field(['ChatData', 'ChatType'], Message)),
+    Chat = #chat{fromName=FromName, type=Type, text=Text, message=Message},
     gen_server:cast(State#state.name, {simulator, chat, Chat}),
     broadcast_message('ChatFromSimulator', Orig, State);
 
-%dispatch_message('ImprovedInstantMessage', 
+dispatch_message('ImprovedInstantMessage', #message{message=Message}=Orig, State) ->
+    FromName = slerl_util:get_binary_string(
+                 ['MessageBlock', 'FromAgentName'], Message),
+    Text = slerl_util:get_binary_string(
+                ['MessageBlock', 'Message'], Message),
+    Type = slerl_util:convert_im_type(
+             slerl_util:get_field(['MessageBlock', 'Dialog'], Message)),
+    IM = #im{fromName=FromName, type=Type, text=Text, message=Message},
+    gen_server:cast(State#state.name, {simulator, im, IM}),
+    broadcast_message('ImprovedInstantMessage', Orig, State);
 
 dispatch_message(Name, Message, State) ->
     broadcast_message(Name, Message, State).

@@ -38,7 +38,7 @@ init([Name, Info]) ->
                permanent,2000,worker,[slerl_bot]},
     Sims = {sims, {slerl_sim_sup, start_link, [Name]},
             permanent,2000,supervisor,[slerl_sim_sup]},
-    {ok,{{one_for_one,0,1}, [Bot, Sims]}}.
+    {ok,{{one_for_one,3,10}, [Bot, Sims]}}.
 
 
 %%====================================================================

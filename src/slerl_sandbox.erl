@@ -15,8 +15,7 @@ test() ->
         {ok, Bot} ->
             after_login(Bot);
         Other ->
-            ?DBG({oh_noes, Other}),
-            init:stop()
+            ?DBG({oh_noes, Other})
     end.
 
 

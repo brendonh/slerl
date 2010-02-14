@@ -13,7 +13,7 @@
          chat/1, chat/2, chat/3,
          retrieve_ims/0,
          subscribe/1, unsubscribe/1,
-         get_region/1,
+         get_region/1, get_uuids/1,
          trace/1, trace_filter/1]).
 
 
@@ -39,7 +39,7 @@ block() ->
     gen_server:call(Bot, block).
 
 teleport(Name, {_,_,_}=Pos) ->
-    gen_server:call(Bot, {teleport, convert_name(Name), Pos}, 20000).
+    gen_server:call(Bot, {teleport, make_bin_string(Name), Pos}, 20000).
 
 
 chat(Text) -> chat(normal, 0, Text).
@@ -59,7 +59,10 @@ retrieve_ims() ->
 %%====================================================================
 
 get_region(Name) ->
-    gen_server:call(Bot, {get_region, convert_name(Name)}).
+    gen_server:call(Bot, {get_region, make_bin_string(Name)}).
+
+get_uuids(AvatarName) ->
+    gen_server:call(Bot, {find_avatar_uuids, make_bin_string(AvatarName)}).
 
 
 subscribe(Type) ->
@@ -81,9 +84,6 @@ trace_filter(MsgNames) ->
 %% Conversions
 %%====================================================================
 
-
-convert_name(Name) when is_list(Name) -> convert_name(list_to_binary(Name));
-convert_name(BinName) -> <<BinName/binary, 0>>.
-    
+   
 make_bin_string(Str) when is_list(Str) -> make_bin_string(list_to_binary(Str));
 make_bin_string(Bin) when is_binary(Bin) -> <<Bin/binary, 0>>.

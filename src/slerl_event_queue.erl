@@ -112,7 +112,9 @@ start_poll(Ack, Done, State) ->
     ReqID.
 
 
-handle_result({error, timeout}, State) ->
+handle_result({error, _}, State) ->
+    % All kinds of shit can go wrong with HTTP,
+    % and we basically don't care about any of it
     {ok, State#state.lastAck, false};
 handle_result({{_,502,_}, _, _}, _State) ->
     {ok, null, false};

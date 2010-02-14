@@ -95,4 +95,21 @@ scrape('ImprovedInstantMessage', Message) ->
     FromName = slerl_util:get_binary_string(['MessageBlock', 'FromAgentName'], Message),
     add(#uuid{key=FromName, uuid=AgentID});
 
+scrape('AvatarPickerReply', Message) ->
+    scrape_picker_replies(?GV('Data', Message));
+
 scrape(_, _) -> ok.
+
+
+scrape_picker_replies([]) -> ok;
+scrape_picker_replies([A|Rest]) ->
+    case ?GV('AvatarID', A) of
+        <<0:16/integer-unit:8>> -> ok;
+        UUID -> 
+            First = slerl_util:get_binary_string(['FirstName'], A),
+            Last = slerl_util:get_binary_string(['LastName'], A),
+            Name = list_to_binary([First, $\s, Last]),
+            add(#uuid{key=Name, uuid=UUID})
+    end,
+    scrape_picker_replies(Rest).
+    

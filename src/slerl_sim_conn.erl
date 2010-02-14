@@ -267,7 +267,11 @@ handle_message(Message, State) ->
             State
     end,
     Spec = Message#message.spec,
-    catch slerl_uuid_db:scrape(Spec#messageDef.name, Message#message.message),
+    case (catch slerl_uuid_db:scrape(Spec#messageDef.name, Message#message.message)) of
+        {'EXIT', What} -> ?DBG({scrape_error, What});
+        _ -> ok
+    end,
+                                                               
     dispatch_message(Spec#messageDef.name, Message, NewState).
 
 
@@ -375,8 +379,7 @@ send(Bin, State) ->
 build_packet(Message, State) ->
     Seq = Message#message.sequence,
 
-    BS = 6 + byte_size(Message#message.message),
-    {AckSuffix, NewState} = ack_suffix(BS, 0, [], State),
+    {AckSuffix, NewState} = get_ack_suffix(Message, State),
 
     Flags = make_flags([Message#message.zerocoded,
                         Message#message.reliable,
@@ -385,7 +388,6 @@ build_packet(Message, State) ->
 
     Header = [Flags, <<Seq:4/integer-unit:8, 0:1/integer-unit:8>>],
     Packet = list_to_binary([Header,Message#message.message,AckSuffix]),
-
     {Packet, NewState#state{sequence=Seq+1}}.
 
 
@@ -394,6 +396,13 @@ make_flags(Bits) ->
     <<Zero:1/integer-unit:1, Reliable:1/integer-unit:1,
      Resend:1/integer-unit:1, Acks:1/integer-unit:1,
      0:4/integer-unit:1>>.
+
+
+get_ack_suffix(_, #state{queuedAcks=[]}=State) ->
+    {[], State};
+get_ack_suffix(Message, State) ->
+    BS = 6 + byte_size(Message#message.message),
+    ack_suffix(BS, 0, [], State).
 
 
 ack_suffix(BS, Count, Bits, #state{queuedAcks=Acks}=State)

@@ -90,6 +90,15 @@ handle_call({send_chat, _, _, _}=SendChat, _From, State) ->
             end,
     {reply, Reply, State};
 
+handle_call({find_avatar_uuids, Name}, From, State) ->
+    case current_sim(State) of
+        none -> 
+            {reply, no_sim, State};
+        _ -> 
+            spawn(fun() -> gen_server:reply(From, avatar_uuid_finder(Name, State)) end),
+            {noreply, State}
+    end;
+
 handle_call(block, _From, State) ->
     {reply, State#state.blockInfo, State};
 
@@ -107,8 +116,7 @@ handle_call(retrieve_ims, _From, State) ->
     {reply, Reply, State};
 
 handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, unknown_call, State}.
 
 
 %%====================================================================
@@ -424,6 +432,36 @@ teleport_status_loop(Position) ->
 %%% Instant Messages
 %%--------------------------------------------------------------------
 
+avatar_uuid_finder(Name, State) ->
+    Sim = current_sim(State),
+    SimInfo = State#state.simInfo,
+    gen_server:call(Sim, {subscribe, 'AvatarPickerReply'}),
+    QueryUUID = slerl_util:random_uuid(),
+    Message = slerl_message:build_message(
+                'AvatarPickerRequest', 
+                [ [SimInfo#sim.agentID, SimInfo#sim.sessionID, QueryUUID],
+                  [Name] ]),
+    gen_server:cast(Sim, {send, Message, true}),
+    receive
+        {message, 'AvatarPickerReply', 
+         #message{message=[{'AgentData', [_, {'QueryID', QueryUUID}]},
+                           {'Data', AvatarInfos}]}, _Conn} ->
+            
+            {ok, format_avatar_uuid_reply(AvatarInfos, [])}
+    after 10000 ->
+            {error, timeout}
+    end.
 
-%build_im({im, ToName, Text}, State) ->
-    
+
+format_avatar_uuid_reply([], Buff) ->
+    lists:reverse(Buff);
+format_avatar_uuid_reply([A|Rest], Buff) ->
+    case ?GV('AvatarID', A) of
+        <<0:16/integer-unit:8>> -> 
+            format_avatar_uuid_reply(Rest, Buff);
+        UUID -> 
+            First = slerl_util:get_binary_string(['FirstName'], A),
+            Last = slerl_util:get_binary_string(['LastName'], A),
+            Name = list_to_binary([First, $\s, Last]),
+            format_avatar_uuid_reply(Rest, [{Name, slerl_util:format_uuid(UUID)}|Buff])
+    end.

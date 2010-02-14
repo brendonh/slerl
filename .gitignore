@@ -3,3 +3,4 @@ login.config
 *.beam
 *.log
 *.dump
+Mnesia.*

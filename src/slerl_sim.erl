@@ -242,28 +242,28 @@ logged_out(_Message, {_Conn, SimInfo}, State) ->
     {noreply, State}.
 
 
-send_agent_update(State) ->
-    Sim = State#state.simInfo,
+%% send_agent_update(State) ->
+%%     Sim = State#state.simInfo,
 
-    Forward = State#state.lookAt,
-    Up = {0.0, 0.0, 1.0},
-    Left = slerl_util:cross_product(Up, Forward),
+%%     Forward = State#state.lookAt,
+%%     Up = {0.0, 0.0, 1.0},
+%%     Left = slerl_util:cross_product(Up, Forward),
 
-    Message = slerl_message:build_message(
-                'AgentUpdate',
-                [ [ Sim#sim.agentID, Sim#sim.sessionID,
-                    {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},   % Body / head rotation
-                    0,                                  % walking / mouselook / typing
-                    State#state.position,
-                    Forward, Left, Up,
-                    0,                                  % Far
-                    0,                                  % ControlFlags,
-                    0                                   % AgentFlags (1 = hide group)
-                   ] ]),
+%%     Message = slerl_message:build_message(
+%%                 'AgentUpdate',
+%%                 [ [ Sim#sim.agentID, Sim#sim.sessionID,
+%%                     {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},   % Body / head rotation
+%%                     0,                                  % walking / mouselook / typing
+%%                     State#state.position,
+%%                     Forward, Left, Up,
+%%                     0,                                  % Far
+%%                     0,                                  % ControlFlags,
+%%                     0                                   % AgentFlags (1 = hide group)
+%%                    ] ]),
 
-    gen_server:cast(get_conn(State), {trace, true}),
-    send_message(Message, true, State),
-    ok.
+%%     gen_server:cast(get_conn(State), {trace, true}),
+%%     send_message(Message, true, State),
+%%     ok.
 
 
 %(ControlFlags.AGENT_CONTROL_AWAY |

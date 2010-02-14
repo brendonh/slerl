@@ -46,12 +46,13 @@ chat(Text) -> chat(normal, 0, Text).
 chat(Type, Text) -> chat(Type, 0, Text).
 chat(Type, Channel, Text) ->
     gen_server:call(Bot, {send_chat, 
-                          convert_chat_type(Type), 
+                          slerl_codes:convert_chat_type(Type), 
                           Channel, 
                           make_bin_string(Text)}).
 
 retrieve_ims() ->
     gen_server:call(Bot, retrieve_ims).
+
 
 %%====================================================================
 %% Config / utility
@@ -86,8 +87,3 @@ convert_name(BinName) -> <<BinName/binary, 0>>.
     
 make_bin_string(Str) when is_list(Str) -> make_bin_string(list_to_binary(Str));
 make_bin_string(Bin) when is_binary(Bin) -> <<Bin/binary, 0>>.
-    
-
-convert_chat_type(whisper) -> 0;
-convert_chat_type(normal) -> 1;
-convert_chat_type(shout) -> 2.

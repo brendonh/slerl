@@ -55,6 +55,15 @@
 }).
 
 
+%% UUID database
+
+-record(uuid, {
+  key,
+  uuid,
+  info=[]
+}).
+
+
 %% Message definitions
 
 -record(messageDef, {

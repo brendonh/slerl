@@ -267,6 +267,7 @@ handle_message(Message, State) ->
             State
     end,
     Spec = Message#message.spec,
+    catch slerl_uuid_db:scrape(Spec#messageDef.name, Message#message.message),
     dispatch_message(Spec#messageDef.name, Message, NewState).
 
 
@@ -532,7 +533,7 @@ dispatch_message('RegionHandshake', #message{message=Message}=Orig, State) ->
 dispatch_message('ChatFromSimulator', #message{message=Message}=Orig, State) ->
     FromName = slerl_util:get_binary_string(['ChatData', 'FromName'], Message),
     Text = slerl_util:get_binary_string(['ChatData', 'Message'], Message),
-    Type = slerl_util:convert_chat_code(
+    Type = slerl_codes:convert_chat_code(
              slerl_util:get_field(['ChatData', 'ChatType'], Message)),
     Chat = #chat{fromName=FromName, type=Type, text=Text, message=Message},
     gen_server:cast(State#state.name, {simulator, chat, Chat}),
@@ -543,7 +544,7 @@ dispatch_message('ImprovedInstantMessage', #message{message=Message}=Orig, State
                  ['MessageBlock', 'FromAgentName'], Message),
     Text = slerl_util:get_binary_string(
                 ['MessageBlock', 'Message'], Message),
-    Type = slerl_util:convert_im_type(
+    Type = slerl_codes:convert_im_type(
              slerl_util:get_field(['MessageBlock', 'Dialog'], Message)),
     IM = #im{fromName=FromName, type=Type, text=Text, message=Message},
     gen_server:cast(State#state.name, {simulator, im, IM}),

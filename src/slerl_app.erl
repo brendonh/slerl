@@ -38,6 +38,7 @@ launch() ->
 
 start(_Type, StartArgs) ->
     ok = slerl_message:parse_message_template(),
+    ok = slerl_uuid_db:startup(),
     case slerl_sup:start_link(StartArgs) of
         {ok, Pid} -> 
             {ok, Pid};

@@ -13,7 +13,7 @@
 -include("slerl_util.hrl").
 
 %% API
--export([start_link/3, logout/1]).
+-export([start_link/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -40,8 +40,6 @@
 start_link(Name, Info, Sup) ->
     gen_server:start_link({local, Name}, ?MODULE, [Name, Info, Sup], []).
 
-logout(Bot) ->
-    gen_server:cast(Bot, logout).
 
 %%====================================================================
 %% gen_server callbacks
@@ -114,6 +112,10 @@ handle_call(retrieve_ims, _From, State) ->
             Reply = ok
     end,
     {reply, Reply, State};
+
+handle_call({send_im, UUID, Text}, _From, State) ->
+    send_im(UUID, none, Text, State),
+    {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, unknown_call, State}.
@@ -463,5 +465,39 @@ format_avatar_uuid_reply([A|Rest], Buff) ->
             First = slerl_util:get_binary_string(['FirstName'], A),
             Last = slerl_util:get_binary_string(['LastName'], A),
             Name = list_to_binary([First, $\s, Last]),
-            format_avatar_uuid_reply(Rest, [{Name, slerl_util:format_uuid(UUID)}|Buff])
+            format_avatar_uuid_reply(Rest, [{Name, UUID}|Buff])
     end.
+
+
+
+send_im(UUID, GivenSessionID, Text, State) ->
+    Sim = current_sim(State),
+    SimInfo = State#state.simInfo,
+    
+    IMSessionID = construct_session_id(SimInfo#sim.agentID, UUID, GivenSessionID),
+    FromName = list_to_binary(atom_to_list(State#state.name)),
+
+    Message = slerl_message:build_message(
+                'ImprovedInstantMessage',
+                [ [SimInfo#sim.agentID, SimInfo#sim.sessionID],
+                  [false,  % FromGroup
+                   UUID,   % ToAgentID
+                   0,      % ParentEstateID
+                   SimInfo#sim.regionID,
+                   {0, 0, 0},
+                   1,      % Offline
+                   0,      % Dialog
+                   IMSessionID,
+                   0,      % Timestamp
+                   FromName,
+                   Text,
+                   <<>>       % BinaryBucket
+                   ] ]),
+
+    gen_server:cast(Sim, {send, Message, true}).
+
+
+construct_session_id(AgentID, AgentID, none) -> AgentID;
+construct_session_id(AgentID, AgentID, AgentID) -> AgentID;
+construct_session_id(AgentID, TargetID, none) -> crypto:exor(AgentID, TargetID);
+construct_session_id(_, _, IMSessionID) -> IMSessionID.

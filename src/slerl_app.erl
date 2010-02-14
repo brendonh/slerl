@@ -26,6 +26,7 @@
 %%====================================================================
 
 launch() ->
+    crypto:start(), % Just for exor :(
     application:start(inets),
     application:start(ssl),
     application:start(slerl),

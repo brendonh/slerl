@@ -11,10 +11,13 @@
          position/0, block/0,
          teleport/2, 
          chat/1, chat/2, chat/3,
+         im_name/2,
          retrieve_ims/0,
          subscribe/1, unsubscribe/1,
          get_region/1, get_uuids/1,
-         trace/1, trace_filter/1]).
+         trace/1, trace_filter/1,
+        
+         exact_avatar_uuid/1]).
 
 
 %%====================================================================
@@ -25,7 +28,7 @@ connect() ->
     gen_server:cast(Bot, initial_connect).
 
 logout() ->
-    slerl_bot:logout(Bot).
+    gen_server:cast(Bot, logout).
 
 
 %%====================================================================
@@ -49,6 +52,13 @@ chat(Type, Channel, Text) ->
                           slerl_codes:convert_chat_type(Type), 
                           Channel, 
                           make_bin_string(Text)}).
+
+im_name(Name, Text) ->
+    case exact_avatar_uuid(Name) of
+        not_found -> {error, not_found};
+        UUID -> gen_server:call(Bot, {send_im, UUID, make_bin_string(Text)})
+    end.
+            
 
 retrieve_ims() ->
     gen_server:call(Bot, retrieve_ims).
@@ -84,6 +94,31 @@ trace_filter(MsgNames) ->
 %% Conversions
 %%====================================================================
 
-   
 make_bin_string(Str) when is_list(Str) -> make_bin_string(list_to_binary(Str));
 make_bin_string(Bin) when is_binary(Bin) -> <<Bin/binary, 0>>.
+
+
+%%====================================================================
+%% Internal
+%%====================================================================
+
+exact_avatar_uuid(Name) when is_list(Name) ->
+    exact_avatar_uuid(list_to_binary(Name));
+exact_avatar_uuid(BinName) ->
+    case slerl_uuid_db:get_uuid(BinName) of
+        not_found ->
+            case get_uuids(BinName) of
+                {ok, Infos} ->
+                    case find_uuid_by_name(BinName, Infos) of
+                        not_found -> {error, not_found};
+                        UUID -> UUID
+                    end;
+                Other -> {error, Other}
+            end;
+        UUID -> UUID
+    end.
+                            
+find_uuid_by_name(_, []) -> not_found;
+find_uuid_by_name(BinName, [{BinName, UUID}|_]) -> UUID;
+find_uuid_by_name(BinName, [_|Rest]) -> find_uuid_by_name(BinName, Rest).
+    
